@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Secrets / local config — NEVER commit these
+.env
+*.local
+config/secrets.*
+config/lockout.json
+config/hwm.json
+config/trade_log.json
+config/staged_orders.json
+config/sector_cache.json
+
+# Daemon logs (written by launchd)
+logs/
+
+# OS
+.DS_Store
+
+# MkDocs build output
+site/

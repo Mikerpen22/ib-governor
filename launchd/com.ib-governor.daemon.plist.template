@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ib-governor launchd agent (template).
+
+  launchd requires ABSOLUTE paths and does not expand $VARS or ~, so this ships as a
+  template: replace __GOVERNOR_HOME__ with the absolute path to your ib-governor checkout.
+
+      sed "s#__GOVERNOR_HOME__#$HOME/ib-governor#g" \
+        launchd/com.ib-governor.daemon.plist.template \
+        > ~/Library/LaunchAgents/com.ib-governor.daemon.plist
+      launchctl load ~/Library/LaunchAgents/com.ib-governor.daemon.plist
+
+  The daemon ships in dry-run/read-only mode (see config/rules.yaml); running it does
+  not place orders until you arm it.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ib-governor.daemon</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>__GOVERNOR_HOME__/.venv/bin/python</string>
+        <string>-m</string>
+        <string>governor.live.daemon</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>__GOVERNOR_HOME__</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONPATH</key>
+        <string>__GOVERNOR_HOME__/src</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>__GOVERNOR_HOME__/logs/governor.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>__GOVERNOR_HOME__/logs/governor.err.log</string>
+</dict>
+</plist>

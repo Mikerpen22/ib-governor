@@ -1,0 +1,37 @@
+# config/rules.yaml — tunable circuit-breaker thresholds.
+# Defaults are seeded from the vault's trigger card. Edit freely; values are
+# validated on load. Every number here overrides a code default in config.py.
+futures:
+  house_money_win_usd: 3000     # realized futures win above this -> 48h lockout
+  daily_loss_usd: 1500          # realized futures loss beyond this -> platform off
+  max_losing_trades: 3          # losing futures trades in a day -> platform off
+  overtrading_warn: 10          # futures trades/day: soft warning
+  overtrading_hard: 20          # futures trades/day: hard halt
+  max_overnight_contracts: 2    # MNQ-equivalent overnight cap (~1/3 of NAV)
+  close_window_min: 15          # minutes before futures close to check overnight size
+  max_notional_pct: 0.50        # intraday futures notional / NAV warning line
+  churn_count: 5                # same-contract trades/day -> "you're scalping it"
+
+# --- live daemon wiring (Plan 2) ---
+live:
+  host: "127.0.0.1"
+  port: 7496                 # live TWS (set 7497 for paper)
+  client_id: 4               # distinct from Desktop=2 / Claude Code=3 / ibkr-cli=1
+  readonly: true
+  account: ""                # blank = sole managed account
+  session_close_et: "16:00"  # the "close" the overnight-notional rule keys off (RTH close)
+  briefing_times_et: ["10:30", "12:30", "15:55"]   # ET; one ~1h after open, midday, near close
+  mnq_notional_usd: 42000    # MNQ-equivalent reference for overnight contract normalization
+  staleness_seconds: 90
+  dry_run: true              # SAFE DEFAULT: log only, never act
+  confirm_ttl_seconds: 300   # confirm token validity window (seconds)
+
+equities:
+  single_name_pct: 0.15
+  sector_pct: 0.25
+  retrade_per_week: 2
+  drawdown_for_add_flag: 0.10
+portfolio:
+  min_cushion: 0.25
+  max_gross_leverage: 2.0
+  drawdown_moratorium_pct: 0.10

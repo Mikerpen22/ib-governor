@@ -1,0 +1,155 @@
+[
+  {
+    "contract": {
+      "secType": "STK",
+      "symbol": "ACME",
+      "localSymbol": "ACME",
+      "multiplier": "",
+      "conId": 2001,
+      "exchange": "",
+      "currency": "USD"
+    },
+    "position": 1000.0,
+    "marketPrice": 150.0,
+    "marketValue": 150000.0,
+    "averageCost": 140.0,
+    "unrealizedPNL": 10000.0,
+    "account": "TEST_ACCT"
+  },
+  {
+    "contract": {
+      "secType": "STK",
+      "symbol": "GLOBEX",
+      "localSymbol": "GLOBEX",
+      "multiplier": "",
+      "conId": 2002,
+      "exchange": "",
+      "currency": "USD"
+    },
+    "position": 500.0,
+    "marketPrice": 200.0,
+    "marketValue": 100000.0,
+    "averageCost": 220.0,
+    "unrealizedPNL": -10000.0,
+    "account": "TEST_ACCT"
+  },
+  {
+    "contract": {
+      "secType": "STK",
+      "symbol": "INITECH",
+      "localSymbol": "INITECH",
+      "multiplier": "",
+      "conId": 2003,
+      "exchange": "",
+      "currency": "USD"
+    },
+    "position": 800.0,
+    "marketPrice": 100.0,
+    "marketValue": 80000.0,
+    "averageCost": 90.0,
+    "unrealizedPNL": 8000.0,
+    "account": "TEST_ACCT"
+  },
+  {
+    "contract": {
+      "secType": "STK",
+      "symbol": "HOOLI",
+      "localSymbol": "HOOLI",
+      "multiplier": "",
+      "conId": 2004,
+      "exchange": "",
+      "currency": "USD"
+    },
+    "position": 300.0,
+    "marketPrice": 400.0,
+    "marketValue": 120000.0,
+    "averageCost": 450.0,
+    "unrealizedPNL": -15000.0,
+    "account": "TEST_ACCT"
+  },
+  {
+    "contract": {
+      "secType": "STK",
+      "symbol": "MEGACORP",
+      "localSymbol": "MEGACORP",
+      "multiplier": "",
+      "conId": 2005,
+      "exchange": "",
+      "currency": "USD"
+    },
+    "position": 600.0,
+    "marketPrice": 250.0,
+    "marketValue": 150000.0,
+    "averageCost": 240.0,
+    "unrealizedPNL": 6000.0,
+    "account": "TEST_ACCT"
+  },
+  {
+    "contract": {
+      "secType": "STK",
+      "symbol": "UMBRELLA",
+      "localSymbol": "UMBRELLA",
+      "multiplier": "",
+      "conId": 2006,
+      "exchange": "",
+      "currency": "USD"
+    },
+    "position": -200.0,
+    "marketPrice": 75.0,
+    "marketValue": -15000.0,
+    "averageCost": 80.0,
+    "unrealizedPNL": 1000.0,
+    "account": "TEST_ACCT"
+  },
+  {
+    "contract": {
+      "secType": "OPT",
+      "symbol": "WIDGCO",
+      "localSymbol": "WIDGCO 270116C00100000",
+      "multiplier": "100",
+      "conId": 2007,
+      "exchange": "",
+      "currency": "USD"
+    },
+    "position": 5.0,
+    "marketPrice": 12.5,
+    "marketValue": 6250.0,
+    "averageCost": 1000.0,
+    "unrealizedPNL": 1250.0,
+    "account": "TEST_ACCT"
+  },
+  {
+    "contract": {
+      "secType": "OPT",
+      "symbol": "WIDGCO",
+      "localSymbol": "WIDGCO 261218P00080000",
+      "multiplier": "100",
+      "conId": 2008,
+      "exchange": "",
+      "currency": "USD"
+    },
+    "position": -2.0,
+    "marketPrice": 8.0,
+    "marketValue": -1600.0,
+    "averageCost": 1200.0,
+    "unrealizedPNL": 800.0,
+    "account": "TEST_ACCT"
+  },
+  {
+    "contract": {
+      "secType": "FUT",
+      "symbol": "MNQ",
+      "localSymbol": "MNQU6",
+      "multiplier": "2",
+      "conId": 2009,
+      "exchange": "",
+      "currency": "USD"
+    },
+    "position": 2.0,
+    "marketPrice": 21000.0,
+    "marketValue": 84000.0,
+    "averageCost": 41900.0,
+    "unrealizedPNL": 200.0,
+    "account": "TEST_ACCT"
+  }
+]

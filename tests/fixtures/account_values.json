@@ -1,0 +1,32 @@
+[
+  { "tag": "AccountCode", "value": "TEST_ACCT", "currency": "", "account": "TEST_ACCT" },
+  { "tag": "AccountType", "value": "INDIVIDUAL", "currency": "", "account": "TEST_ACCT" },
+  { "tag": "AccountReady", "value": "true", "currency": "", "account": "TEST_ACCT" },
+  { "tag": "AccountOrGroup", "value": "TEST_ACCT", "currency": "USD", "account": "TEST_ACCT" },
+  { "tag": "AccountOrGroup", "value": "TEST_ACCT", "currency": "BASE", "account": "TEST_ACCT" },
+
+  { "tag": "NetLiquidation", "value": "1000000.00", "currency": "USD", "account": "TEST_ACCT" },
+  { "tag": "NetLiquidationByCurrency", "value": "1000000.00", "currency": "BASE", "account": "TEST_ACCT" },
+  { "tag": "ExcessLiquidity", "value": "600000.00", "currency": "USD", "account": "TEST_ACCT" },
+  { "tag": "FullExcessLiquidity", "value": "600000.00", "currency": "USD", "account": "TEST_ACCT" },
+  { "tag": "GrossPositionValue", "value": "1200000.00", "currency": "USD", "account": "TEST_ACCT" },
+  { "tag": "EquityWithLoanValue", "value": "1000000.00", "currency": "USD", "account": "TEST_ACCT" },
+  { "tag": "BuyingPower", "value": "2400000.00", "currency": "USD", "account": "TEST_ACCT" },
+  { "tag": "AvailableFunds", "value": "550000.00", "currency": "USD", "account": "TEST_ACCT" },
+  { "tag": "FullInitMarginReq", "value": "450000.00", "currency": "USD", "account": "TEST_ACCT" },
+  { "tag": "FullMaintMarginReq", "value": "400000.00", "currency": "USD", "account": "TEST_ACCT" },
+  { "tag": "Cushion", "value": "0.6", "currency": "", "account": "TEST_ACCT" },
+  { "tag": "Leverage-S", "value": "1.2", "currency": "", "account": "TEST_ACCT" },
+  { "tag": "CashBalance", "value": "50000.00", "currency": "USD", "account": "TEST_ACCT" },
+  { "tag": "TotalCashValue", "value": "50000.00", "currency": "USD", "account": "TEST_ACCT" },
+  { "tag": "UnrealizedPnL", "value": "2250.00", "currency": "USD", "account": "TEST_ACCT" },
+  { "tag": "RealizedPnL", "value": "0.00", "currency": "USD", "account": "TEST_ACCT" },
+  { "tag": "Currency", "value": "USD", "currency": "USD", "account": "TEST_ACCT" },
+  { "tag": "ExchangeRate", "value": "1.00", "currency": "USD", "account": "TEST_ACCT" },
+
+  { "tag": "CashBalance", "value": "10000.00", "currency": "EUR", "account": "TEST_ACCT" },
+  { "tag": "ExchangeRate", "value": "1.08", "currency": "EUR", "account": "TEST_ACCT" },
+  { "tag": "CashBalance", "value": "2000000.00", "currency": "JPY", "account": "TEST_ACCT" },
+  { "tag": "ExchangeRate", "value": "0.0068", "currency": "JPY", "account": "TEST_ACCT" },
+  { "tag": "ExchangeRate", "value": "1.00", "currency": "BASE", "account": "TEST_ACCT" }
+]
