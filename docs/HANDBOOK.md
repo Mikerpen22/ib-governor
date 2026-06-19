@@ -231,6 +231,7 @@ Everything else (Telegram, trim idempotency, MNQ-notional accuracy) is already h
 | A trade you want is BLOCKED | A hard line genuinely trips | Re-check the reason; if deliberate, `analyze … --override` then submit |
 | `/pre-trade` not found | Skills not installed / Claude Code not restarted | Run the install in [§3](#3-one-time-setup), restart |
 | "armed but readonly" warning on submit | `dry_run` is off but `readonly` is on | Set `live.readonly: false` (the second lock) |
+| **Disarm / roll back fast** (stop all live action) | You're armed and want to revert to safe | **Stop the daemon** (fastest), and/or set `live.dry_run: true` (or `readonly: true`) and restart it. `git checkout config/rules.yaml` restores the shipped-safe defaults. |
 
 ---
 

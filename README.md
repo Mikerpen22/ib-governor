@@ -39,7 +39,7 @@ Both are grounded in your own rules (and, optionally, a research vault). Both re
 Four layers, each with one job (full deep-dive in [FORCLAUDE.md](docs/FORCLAUDE.md)):
 
 - **Brain-stem** — the Python daemon (`src/governor/live`): persistent IBKR connection, deterministic rule engine, staged actions. **No LLM in the hot path** — the trip decision is dumb, fast, auditable Python.
-- **Cortex** — the on-demand LLM analysts (`skills/pre-trade*`): vault-grounded reasoning at the gate.
+- **Cortex** — the on-demand [Claude Code skills](#claude-code-skills) (`skills/`): LLM analysts that add judgment + optional vault grounding, both at the gate and at the close.
 - **Senses** — IBKR via `ib_async` (live data) and `whatIfOrder` (margin preview).
 - **Memory** — `config/rules.yaml` (thresholds) + (optionally) your research vault.
 
@@ -58,6 +58,24 @@ The analysis covers: IBKR `whatIf` margin, per-trade size vs a 1.5%-NAV band, th
 
 ## The circuit-breaker daemon
 `python -m governor.live.daemon` holds a persistent IBKR connection and re-evaluates the rule set the instant a fill arrives, plus scheduled daily briefings. On a trip it sends a loud alert (Telegram + desktop) and stages a confirm-gated action — **lockout**, **platform-off** (cancel orders), or **trim**. You reply `CONFIRM <token>` to execute; tokens are single-use and expire.
+
+## Claude Code skills
+ib-governor ships four [Claude Code](https://claude.com/claude-code) skills (in `skills/`) — the optional **LLM-analyst layer** that wraps the deterministic engine with judgment and (optionally) your own research notes. The Python CLI works without them; the skills make it conversational.
+
+| Skill | What it does | Use when |
+|-------|--------------|----------|
+| **`/pre-trade`** | Router — analyzes any deliberate stock *or* futures order against your rules, margin, and concentration, then hands off to the right analyst below. | placing any trade |
+| **`/pre-trade-equities`** | Stock pre-trade gate: size vs a 1.5%-NAV band, the concentration impact of *this* add, post-trade rule trips, IBKR margin, optional vault thesis → **GO / CAUTION / BLOCK**, confirm-gated. | buying/selling a stock |
+| **`/pre-trade-futures`** | Futures pre-trade gate: notional/leverage, overnight risk, margin, plus a hedge-vs-bet and regime read → **GO / CAUTION / BLOCK**, confirm-gated. | trading MNQ/ES/NQ/CL/… |
+| **`/daily-summary`** | End-of-day recap through three investor lenses — **Druckenmiller** (macro/risk), **Gerstner** (secular/AI), **Baker** (concentrated conviction) — sent to Telegram and, optionally, logged as a "Market Close" note to your vault. Read-only. | at the close |
+
+Install them by symlinking into Claude Code's skills directory:
+```bash
+for s in pre-trade pre-trade-equities pre-trade-futures daily-summary; do
+  ln -s "$GOVERNOR_HOME/skills/$s" "$HOME/.claude/skills/$s"
+done
+```
+The three pre-trade skills never reach the exchange without your explicit confirm; `/daily-summary` only reads. All layer optional `$VAULT_DIR` research notes on top of the deterministic facts.
 
 ## Rules & configuration
 - **Rule catalog:** [docs/RULES.md](docs/RULES.md) — all rules across futures/equities/portfolio, each with its `rules.yaml` config key, severity, and what trips it. Generated from `src/governor/rules/catalog.py` (regenerate: `python -m governor.rules.catalog`); a test fails if it drifts.
@@ -83,5 +101,5 @@ ib-governor ships SAFE. The full pre-flight checklist is in [SECURITY.md](docs/S
 - **Stack:** Python 3.12, `ib_async`, `pydantic` v2, `httpx` (Telegram), `pytest`.
 - **Tests:** `pytest -q` — green on a fresh clone; live tests skip without TWS. Real IBKR response shapes can be captured into fixtures via `scripts/capture_fixtures.py` (keep committed fixtures **synthetic** — see the script's header).
 - **Layout:** `src/governor/{model,config,rules,live,actions,comms,state,gate}` · `skills/pre-trade*` · `tests/` · `docs/`.
-- **Setup & contributing:** [AGENTS.md](AGENTS.md). **Deep-dive:** [FORCLAUDE.md](docs/FORCLAUDE.md).
+- **Setup & contributing:** [CONTRIBUTING.md](CONTRIBUTING.md) — newcomer-friendly dev setup, commands, env vars, and conventions (plus [AGENTS.md](AGENTS.md) for a 60-second orientation). **Deep-dive:** [FORCLAUDE.md](docs/FORCLAUDE.md).
 - **License:** [Apache-2.0](LICENSE).
