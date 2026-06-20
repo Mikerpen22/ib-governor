@@ -104,9 +104,9 @@ def _futures_preview(**over):
                 "counter_trend": True,
                 "trend_label": "uptrend",
                 "atr": 85.0,
-                "atr_pctile": 0.78,
+                "atr_pctile": 0.45,
                 "vol_label": "normal",
-                "vol_expanding": True,
+                "vol_expanding": False,
                 "vol_elevated": False,
                 "dist_from_high_pct": 0.004,
                 "dist_from_low_pct": 0.12,
@@ -186,8 +186,9 @@ class TestEquitySetupPanel:
 
     def test_extended_glyph_shown(self):
         out = render_panels(_equity_preview())
-        # extended pivot -> ⚠️ or 🟡 glyph
-        assert "⚠️" in out or "🟡" in out
+        # extended pivot -> ⚠️ specifically on the Pivot line
+        pivot_line = next(l for l in out.splitlines() if "Pivot" in l)
+        assert "⚠️" in pivot_line
 
     def test_no_banner_in_output(self):
         """render_panels must NOT emit the banner line (that is the skill's job)."""
@@ -274,8 +275,8 @@ class TestFuturesSetupPanel:
 
     def test_atr_percentile_shown(self):
         out = render_panels(_futures_preview())
-        # atr_pctile 0.78 -> "78" something
-        assert "78" in out
+        # atr_pctile 0.45 -> "45th pct" in the vol regime line
+        assert "45" in out
 
     def test_location_factor_shown(self):
         out = render_panels(_futures_preview())
@@ -290,6 +291,18 @@ class TestFuturesSetupPanel:
         out = render_panels(_futures_preview())
         # rsi=71.0 should appear
         assert "71" in out
+
+    def test_elevated_vol_shows_caution_glyph_not_ok(self):
+        """atr_pctile > 0.70 -> vol_label=elevated -> 🟡 on the vol line, never ✅."""
+        p = _futures_preview()
+        p["setup"]["futures"]["atr_pctile"] = 0.78
+        p["setup"]["futures"]["vol_label"] = "elevated"
+        p["setup"]["futures"]["vol_elevated"] = True
+        out = render_panels(p)
+        vol_line = next(l for l in out.splitlines() if "Vol regime" in l)
+        assert "🟡" in vol_line
+        assert "✅" not in vol_line
+        assert "78th pct" in vol_line
 
 
 class TestRiskPanel:

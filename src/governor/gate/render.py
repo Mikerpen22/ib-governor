@@ -11,10 +11,10 @@ verdict. This module is intentionally pure: dict in, str out; no I/O, no
 ib_async, no side effects.
 
 Glyph convention:
-  ✅  pass / ok
-  🟡  soft-miss / caution
-  🔴  fail / counter-trend / hard block
-  ⚠️  over-band / warning
+  ✅  pass / neutral
+  🟡  caution-level factor
+  🔴  primary / strong warning (e.g. counter-trend)
+  ⚠️  over-band / extended
 """
 from __future__ import annotations
 
@@ -187,7 +187,9 @@ def _futures_setup_panel(setup: dict) -> str:
     vol_expanding = fut.get("vol_expanding", False)
 
     dist_from_high = fut.get("dist_from_high_pct", 0.0)
-    dist_from_low = fut.get("dist_from_low_pct", 0.0)
+    # dist_from_low_pct is available in the gate payload but intentionally unused here —
+    # the location line always shows distance from the recent high (the trade-relevant side).
+    _dist_from_low = fut.get("dist_from_low_pct", 0.0)  # noqa: F841  (kept for completeness)
     chasing = fut.get("chasing", False)
 
     rsi_val = fut.get("rsi")
@@ -203,22 +205,25 @@ def _futures_setup_panel(setup: dict) -> str:
         trend_note = f"aligned — with the {trend_label}"
     elif counter_trend:
         trend_glyph = "🔴"
-        trend_note = f"above all — shorting an {trend_label}" if trend_label == "uptrend" else f"below all — buying a {trend_label}"
+        if trend_label == "uptrend":
+            trend_note = "above all — shorting an uptrend"
+        elif trend_label == "downtrend":
+            trend_note = "below all — buying a downtrend"
+        else:
+            trend_note = f"counter-trend ({trend_label})"
     else:
         trend_glyph = "🟡"
         trend_note = f"mixed trend ({trend_label})"
 
     # 2. Vol regime
     if vol_label == "elevated":
-        vol_glyph = "🔴"
-    elif vol_label == "compressed":
         vol_glyph = "🟡"
     else:
         vol_glyph = "✅"
     expand_note = " — expanding, widen stops" if vol_expanding else ""
-    vol_line = f"   Vol regime        {vol_glyph} ATR {atr_pctile * 100:.0f}th pct — {vol_label}{expand_note}"
+    vol_line = f"   Vol regime        {vol_glyph} ATR {atr_pctile * 100:.0f}th pct{expand_note}"
 
-    # 3. Location (vs 5-day range; dist_from_high is negative when at/above high)
+    # 3. Location (vs 20-day range; dist_from_high is negative when at/above high)
     if chasing:
         loc_glyph = "🔴"
         loc_note = "at the range extreme — chasing"
