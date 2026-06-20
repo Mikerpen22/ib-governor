@@ -40,8 +40,11 @@ log = logging.getLogger("governor.daemon")
 # IB status codes that are informational, not errors (data farm connect/disconnect).
 _BENIGN_IB_CODES = {2104, 2106, 2107, 2108, 2119, 2158}
 
-# A staged-order confirm token: uppercase hex from StagedOrderStore's factory.
-_TOKEN_RE = re.compile(r"^[A-Z0-9]{6,}$")
+# A staged-order / action confirm token: hex from secrets.token_hex(...).upper()
+# (8 chars for actions, 16 for orders). Hex-only + min-8 avoids matching ordinary
+# words after the CONFIRM keyword.
+_TOKEN_RE = re.compile(r"^[0-9A-F]{8,}$")
+_TOKEN_STRIP = "`*_'\".,!?:;()[]"
 
 
 def next_briefing_dt(now: dt.datetime, briefing_times_et: list[str]) -> dt.datetime:
@@ -69,16 +72,22 @@ def is_stale(last, now, max_age: float) -> bool:
 
 
 def _confirm_token(text: str) -> str | None:
-    """Extract the token from a `CONFIRM <token>` message; None if not that shape.
+    """Extract an order confirm token from a message containing a CONFIRM keyword
+    followed by a token-shaped word.
 
-    The token must look like a real staged-order token (uppercase hex, the
-    StagedOrderStore factory shape) so a natural-language message that merely
-    starts with "confirm" (e.g. "confirm that ORCL is a buy") is NOT mistaken for
-    a submit and is routed to the agent instead.
+    Tolerant of how a phone user actually sends it — case, surrounding markdown
+    backticks/punctuation, and leading words ("Reply CONFIRM x", "please confirm
+    x") — mirroring the all-words tolerance of ConfirmTokenGate.verify. A natural-
+    language message that merely mentions "confirm" without a token-shaped word
+    (e.g. "confirm that ORCL is a buy") returns None and is routed to the agent.
     """
-    words = text.split()
-    if len(words) >= 2 and words[0].lower() == "confirm" and _TOKEN_RE.match(words[1]):
-        return words[1]
+    words = [w.strip(_TOKEN_STRIP).upper() for w in text.split()]
+    for i, word in enumerate(words):
+        if word == "CONFIRM":
+            for candidate in words[i + 1:]:        # first token-shaped word after CONFIRM
+                if _TOKEN_RE.match(candidate):
+                    return candidate
+            return None
     return None
 
 

@@ -410,15 +410,19 @@ def _handle_submit(args, config: RulesConfig) -> int:
         print(f"ERROR: staged intent is invalid — {exc}", file=sys.stderr)
         return 1
 
-    # Warn on armed-but-readonly misconfiguration: dry_run=False with readonly=True
-    # means TWS will silently reject the order even though the CLI would report success.
+    # Fail loud on armed-but-readonly misconfiguration: dry_run=False with
+    # readonly=True means TWS would SILENTLY reject the order while the synchronous
+    # placeOrder call still returns "PLACED" — the user would believe a phantom
+    # order is live. Refuse to submit instead of reporting a false success.
     if not config.live.dry_run and config.live.readonly:
         print(
-            "⚠️  live.dry_run is False but live.readonly is True — the IB API "
-            "connection is read-only, so TWS will REJECT this order. Set "
-            "readonly: false in config/rules.yaml to actually place orders.",
+            "ERROR: live.dry_run is False but live.readonly is True — the IB API "
+            "connection is read-only, so TWS would REJECT this order while the CLI "
+            "reported success. Refusing to submit. Set readonly: false in "
+            "config/rules.yaml to actually place orders.",
             file=sys.stderr,
         )
+        return 1
 
     # Connect
     conn = _make_connection(config)

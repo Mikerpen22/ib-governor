@@ -73,9 +73,9 @@ async def test_order_confirm_routes_to_gate_submit(tmp_path, monkeypatch):
     monkeypatch.setattr(daemon_mod, "_gate_submit", _fake_gate_submit)
 
     d = _daemon(tmp_path)  # tokens gate empty -> not an action confirm
-    await d.handle_telegram_text("CONFIRM ORDERTOKEN9")
+    await d.handle_telegram_text("CONFIRM A1B2C3D4E5F60789")
 
-    assert submit_calls == ["ORDERTOKEN9"]
+    assert submit_calls == ["A1B2C3D4E5F60789"]
     assert any("PLACED" in a for a in d._alerts)
 
 
@@ -86,7 +86,7 @@ async def test_gate_submit_error_is_relayed(tmp_path, monkeypatch):
     monkeypatch.setattr(daemon_mod, "_gate_submit", _fake_gate_submit)
 
     d = _daemon(tmp_path)
-    await d.handle_telegram_text("CONFIRM BLOCKEDTOKEN")
+    await d.handle_telegram_text("CONFIRM DEADBEEF12345678")
     assert any("BLOCKED" in a for a in d._alerts)
 
 

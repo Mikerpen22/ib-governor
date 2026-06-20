@@ -386,6 +386,27 @@ class TestSubmitToken:
         assert submit_calls == []                       # never reached the write path
         assert "BLOCK" in capsys.readouterr().err
 
+    def test_submit_armed_but_readonly_fails_loud(self, monkeypatch, tmp_path, capsys):
+        """dry_run=False + readonly=True: TWS silently rejects, so submit must
+        fail loud (nonzero, no write) instead of reporting a phantom 'PLACED'."""
+        import governor.gate.cli as cli
+
+        token, staged_path = self._stage_intent(tmp_path)
+        _, submit_calls, _ = _patch_cli_seams(
+            monkeypatch, tmp_path, verdict=_go_verdict(), preview=_go_preview(),
+        )
+        monkeypatch.setattr(cli, "_staged_path", lambda config: staged_path)
+        monkeypatch.setattr(
+            cli, "load_config",
+            lambda _p: RulesConfig.model_validate({"live": {"dry_run": False, "readonly": True}}),
+        )
+
+        with pytest.raises(SystemExit) as exc:
+            cli.main(["submit", "--token", token])
+        assert exc.value.code != 0
+        assert submit_calls == []                       # never reached the write path
+        assert "readonly" in capsys.readouterr().err.lower()
+
     def test_submit_allows_block_staged_with_override(self, monkeypatch, tmp_path, capsys):
         """--override deliberately places a BLOCK-staged order."""
         import governor.gate.cli as cli
