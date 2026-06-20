@@ -171,3 +171,55 @@ def test_two_legs_minimum_is_available():
     assert len(r.contractions) == 2
     assert r.is_contracting is True
     assert abs(r.pivot - (105.0 + _HIGH_OFFSET)) < 1e-6
+
+
+def test_is_not_contracting_on_widening_staircase():
+    # WIDENING retracements: ~7% -> ~15% -> ~30%.
+    # is_contracting requires each retr[k] <= retr[k-1]*1.1; a ~30% leg after ~15%
+    # violates that (30% > 15%*1.1 = 16.5%), so is_contracting should be False.
+    segs = [
+        (40.0, 1),
+        (100.0, 30),    # P1 = 100
+        (93.0, 15),     # L1: (100-93)/100 = 0.07  <- smallest pullback first
+        (105.0, 20),    # P2 = 105
+        (89.25, 18),    # L2: (105-89.25)/105 = 0.15
+        (108.0, 20),    # P3 = 108
+        (75.6, 15),     # L3: (108-75.6)/108 = 0.30  <- largest pullback last
+        (82.0, 12),     # drift below the pivot
+    ]
+    r = compute_vcp(_build(segs), EquitySetupRules())
+    assert r.available is True
+    assert r.is_contracting is False
+
+
+def test_last_grade_too_loose_when_final_leg_retraces_over_18_pct():
+    # Final contraction retraces ~25% (> contraction_loose_pct=0.18) -> "too_loose".
+    # Use same VCP shape as canonical but make the last pullback much deeper.
+    segs = [
+        (40.0, 1),
+        (100.0, 30),    # P1 = 100
+        (70.0, 20),     # L1: 30%
+        (105.0, 25),    # P2 = 105
+        (89.25, 18),    # L2: 15%
+        (108.0, 20),    # P3 = 108  (the pivot)
+        (81.0, 15),     # L3: (108-81)/108 = 0.25  -> grade "too_loose"
+        (85.0, 12),     # drift below the pivot
+    ]
+    r = compute_vcp(_build(segs), EquitySetupRules())
+    assert r.available is True
+    assert r.last_grade == "too_loose"
+
+
+def test_distance_band_wait_and_too_late():
+    # Pivot is the bar HIGH of the last swing high: 108 + _HIGH_OFFSET = 108.2.
+    # "wait":     distance_pct in (0.10, 0.15] -> price in (119.02, 124.43]
+    #             Use final_level=121.0 -> distance ~= (121-108.2)/108.2 ~= 11.8%
+    # "too_late": distance_pct > 0.15         -> price > 124.43
+    #             Use final_level=130.0 -> distance ~= (130-108.2)/108.2 ~= 20.1%
+    r_wait = compute_vcp(_vcp_bars(final_level=121.0), EquitySetupRules())
+    assert r_wait.available is True
+    assert r_wait.distance_band == "wait"
+
+    r_too_late = compute_vcp(_vcp_bars(final_level=130.0), EquitySetupRules())
+    assert r_too_late.available is True
+    assert r_too_late.distance_band == "too_late"
