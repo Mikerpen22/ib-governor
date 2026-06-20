@@ -116,12 +116,48 @@ class GateRules(BaseModel):
     max_trade_pct_nav: float = Field(0.015, gt=0, le=1)  # single trade notional > this % of NAV -> CAUTION
 
 
+class EquitySetupRules(BaseModel):
+    """Minervini Stage-2 + VCP thresholds (defaults seeded from the /vcp skill)."""
+    stage2_confirmed_min: NonNegativeInt = 6     # of 7 criteria -> "confirmed"
+    stage2_candidate_min: NonNegativeInt = 4     # 4-5 -> "candidate"; <=3 -> "none"
+    high_proximity_pct: float = Field(0.75, gt=0, le=1)   # 52wk position to count as "near high"
+    min_range_ratio: PositiveFloat = 1.30        # 52wk high/low
+    ma200_slope_lookback: NonNegativeInt = 20    # bars
+    pivot_extended_pct: float = Field(0.05, gt=0, le=1)   # past pivot -> extended -> CAUTION
+    pivot_too_late_pct: float = Field(0.15, gt=0, le=1)
+    contraction_loose_pct: float = Field(0.18, gt=0, le=1)
+
+
+class FuturesSetupRules(BaseModel):
+    """Futures four-factor setup thresholds."""
+    ma_fast: NonNegativeInt = 20
+    ma_mid: NonNegativeInt = 50
+    ma_slow: NonNegativeInt = 200
+    atr_period: NonNegativeInt = 14
+    atr_lookback: NonNegativeInt = 100           # window for the ATR percentile
+    atr_elevated_pctile: float = Field(0.70, gt=0, le=1)
+    atr_compressed_pctile: float = Field(0.30, gt=0, le=1)
+    range_lookback: NonNegativeInt = 20          # 20-day high/low for location
+    extension_chase_pct: float = Field(0.02, gt=0, le=1)
+    rsi_period: NonNegativeInt = 14
+    rsi_overbought: PositiveFloat = 70.0
+    rsi_oversold: PositiveFloat = 30.0
+
+
+class SetupRules(BaseModel):
+    history_duration: str = "1 Y"                # reqHistoricalData duration for the candidate
+    min_bars: NonNegativeInt = 200               # need 200+ for MA200; below -> "insufficient"
+    equities: EquitySetupRules = Field(default_factory=EquitySetupRules)
+    futures: FuturesSetupRules = Field(default_factory=FuturesSetupRules)
+
+
 class RulesConfig(BaseModel):
     futures: FuturesRules = Field(default_factory=FuturesRules)
     live: LiveConfig = Field(default_factory=LiveConfig)
     equities: EquitiesRules = Field(default_factory=EquitiesRules)
     portfolio: PortfolioRules = Field(default_factory=PortfolioRules)
     gate: GateRules = Field(default_factory=GateRules)
+    setup: SetupRules = Field(default_factory=SetupRules)
 
 
 def load_config(path: str | Path) -> RulesConfig:
