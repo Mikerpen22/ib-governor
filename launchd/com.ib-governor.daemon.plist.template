@@ -3,9 +3,11 @@
   ib-governor launchd agent (template).
 
   launchd requires ABSOLUTE paths and does not expand $VARS or ~, so this ships as a
-  template: replace __GOVERNOR_HOME__ with the absolute path to your ib-governor checkout.
+  template: replace __GOVERNOR_HOME__ with your ib-governor checkout and __HOME__
+  with your home directory.
 
-      sed "s#__GOVERNOR_HOME__#$HOME/ib-governor#g" \
+      sed -e "s#__GOVERNOR_HOME__#$HOME/ib-governor#g" \
+          -e "s#__HOME__#$HOME#g" \
         launchd/com.ib-governor.daemon.plist.template \
         > ~/Library/LaunchAgents/com.ib-governor.daemon.plist
       launchctl load ~/Library/LaunchAgents/com.ib-governor.daemon.plist
@@ -30,6 +32,14 @@
     <dict>
         <key>PYTHONPATH</key>
         <string>__GOVERNOR_HOME__/src</string>
+        <!-- PATH must include the venv bin (so the Telegram NL agent's
+             `python -m governor.gate analyze` resolves to the venv python) and
+             /opt/homebrew/bin (so the spawned `claude` CLI is found); launchd's
+             default PATH has neither. HOME lets `claude` find its login creds. -->
+        <key>PATH</key>
+        <string>__GOVERNOR_HOME__/.venv/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>HOME</key>
+        <string>__HOME__</string>
     </dict>
     <key>RunAtLoad</key>
     <true/>

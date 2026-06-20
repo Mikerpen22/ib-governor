@@ -156,7 +156,8 @@ Rather than manually starting the daemon each session, register it as a launchd 
 
 ```bash
 mkdir -p logs
-sed "s#__GOVERNOR_HOME__#$GOVERNOR_HOME#g" \
+sed -e "s#__GOVERNOR_HOME__#$GOVERNOR_HOME#g" \
+    -e "s#__HOME__#$HOME#g" \
   launchd/com.ib-governor.daemon.plist.template \
   > ~/Library/LaunchAgents/com.ib-governor.daemon.plist
 launchctl load ~/Library/LaunchAgents/com.ib-governor.daemon.plist   # unload to stop
@@ -165,6 +166,7 @@ launchctl load ~/Library/LaunchAgents/com.ib-governor.daemon.plist   # unload to
 What you get:
 - **Auto-start** at login and after crashes (`KeepAlive: SuccessfulExit = false` restarts it on any non-zero exit).
 - **Telegram works** because the daemon calls `load_env_file()` on startup, which reads your `.env` before `telegram_from_env()` runs — launchd doesn't source your shell profile, so without this Telegram creds would be empty and alerts would go dark.
+- **Natural-language ordering works** because the template sets `PATH` (venv bin + `/opt/homebrew/bin`) and `HOME` — launchd's default `PATH` finds neither the `claude` CLI the NL agent shells out to nor the venv `python` it runs `gate analyze` with, and `HOME` is where `claude` reads its login. Without these the bot replies "natural-language ordering is unavailable."
 - **Logs** land in `logs/governor.out.log` and `logs/governor.err.log` (the `logs/` directory is git-ignored).
 
 To stop it: `launchctl unload ~/Library/LaunchAgents/com.ib-governor.daemon.plist`.
