@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ib-governor daily-summary launchd agent (template).
+
+  Runs the `daily-summary` skill headlessly on a schedule: it pulls the day's
+  data, researches the tape, writes a "Market Close" note to your vault, and
+  sends a Telegram recap. It is READ-ONLY on the account (places no orders).
+
+  launchd needs ABSOLUTE paths and does not expand $VARS or ~, so replace the
+  three placeholders on the way in:
+
+      CLAUDE_BIN="$(command -v claude)"
+      sed -e "s#__GOVERNOR_HOME__#$HOME/ib-governor#g" \
+          -e "s#__VAULT_DIR__#$HOME/Library/Mobile Documents/iCloud~md~obsidian/Documents#g" \
+          -e "s#__CLAUDE_BIN__#$CLAUDE_BIN#g" \
+        launchd/com.ib-governor.daily-summary.plist.template \
+        > ~/Library/LaunchAgents/com.ib-governor.daily-summary.plist
+      launchctl load ~/Library/LaunchAgents/com.ib-governor.daily-summary.plist
+
+  Prereqs: the `daily-summary` skill installed (symlinked into ~/.claude/skills),
+  the `claude` CLI on PATH, and TWS running at the scheduled time. Adjust the
+  StartCalendarInterval hour/minute to ~90 min after YOUR local market close.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ib-governor.daily-summary</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>__CLAUDE_BIN__</string>
+        <string>-p</string>
+        <string>/daily-summary</string>
+        <string>--allowedTools</string>
+        <string>Bash Read Write Edit WebSearch Glob Grep</string>
+        <string>--add-dir</string>
+        <string>__VAULT_DIR__</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>__GOVERNOR_HOME__</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>__HOME__</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>GOVERNOR_HOME</key>
+        <string>__GOVERNOR_HOME__</string>
+        <key>VAULT_DIR</key>
+        <string>__VAULT_DIR__</string>
+    </dict>
+    <!-- Weekdays (Mon=1 … Fri=5); set Hour/Minute to ~90 min after your local close. -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>14</integer><key>Minute</key><integer>30</integer></dict>
+        <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>14</integer><key>Minute</key><integer>30</integer></dict>
+        <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>14</integer><key>Minute</key><integer>30</integer></dict>
+        <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>14</integer><key>Minute</key><integer>30</integer></dict>
+        <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>14</integer><key>Minute</key><integer>30</integer></dict>
+    </array>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>__GOVERNOR_HOME__/logs/daily-summary.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>__GOVERNOR_HOME__/logs/daily-summary.err.log</string>
+</dict>
+</plist>

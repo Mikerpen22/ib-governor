@@ -168,6 +168,31 @@ What you get:
 
 To stop it: `launchctl unload ~/Library/LaunchAgents/com.ib-governor.daemon.plist`.
 
+> **Robustness:** the template sets `ThrottleInterval: 30` — if TWS isn't up yet (e.g. right after login) the daemon exits and launchd respawns it calmly every 30s instead of hot-looping. Mid-session disconnects self-heal via the daemon's own reconnect backoff (5→60s).
+
+### Schedule the daily summary (launchd)
+
+Run the **`daily-summary`** skill unattended every weekday, so a "Market Close" note + Telegram recap land without you lifting a finger. It ships as a template too (`launchd/com.ib-governor.daily-summary.plist.template`). It runs `claude -p /daily-summary` headless, so it needs the `claude` CLI on PATH, the skill installed (symlinked into `~/.claude/skills`), and an explicit env (launchd ignores your shell profile):
+
+```bash
+CLAUDE_BIN="$(command -v claude)"
+sed -e "s#__GOVERNOR_HOME__#$GOVERNOR_HOME#g" \
+    -e "s#__VAULT_DIR__#$VAULT_DIR#g" \
+    -e "s#__HOME__#$HOME#g" \
+    -e "s#__CLAUDE_BIN__#$CLAUDE_BIN#g" \
+  launchd/com.ib-governor.daily-summary.plist.template \
+  > ~/Library/LaunchAgents/com.ib-governor.daily-summary.plist
+launchctl load  ~/Library/LaunchAgents/com.ib-governor.daily-summary.plist
+launchctl start com.ib-governor.daily-summary   # optional: fire once now to test
+```
+
+What you get / need to know:
+- **Fires weekdays** at the `StartCalendarInterval` time (ships 14:30 local — set it to ~90 min after *your* market close so fills + final marks settle).
+- **Read-only.** It pulls data, writes a vault note (`$VAULT_DIR/invest/daily-recaps/<date> Market Close.md`), and sends Telegram — it never places an order.
+- **Collision-free.** The collector connects on its own `daily_client_id` (6), distinct from the daemon (4) and the pre-trade gate (5), so it reads while the daemon holds its connection.
+- **TWS must be up** at that time; if it's down the run says so and writes nothing (fails loud — never fabricates).
+- **Logs:** `logs/daily-summary.{out,err}.log`. To stop: `launchctl unload ~/Library/LaunchAgents/com.ib-governor.daily-summary.plist`.
+
 ---
 
 ## 6. Reading a verdict

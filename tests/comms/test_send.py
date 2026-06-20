@@ -29,7 +29,7 @@ def _run_main(args: list[str], monkeypatch, notify_mock, cfg: TelegramConfig):
 
     recorded_sends: list[str] = []
 
-    async def _fake_tg_send(text: str) -> None:
+    async def _fake_tg_send(text: str, parse_mode: str | None = None) -> None:
         recorded_sends.append(text)
 
     with (
@@ -130,6 +130,50 @@ class TestTelegramSend:
 
         out = capsys.readouterr().out
         assert "sent" in out.lower()
+
+    def test_html_flag_passes_parse_mode(self):
+        """--html makes the CLI send with Telegram HTML parse_mode."""
+        from governor.comms import send as send_mod
+
+        cfg = TelegramConfig(bot_token="bot123", chat_id="42")
+        recorded: list[tuple[str, str | None]] = []
+
+        async def _fake(text: str, parse_mode: str | None = None) -> None:
+            recorded.append((text, parse_mode))
+
+        with (
+            patch.object(send_mod, "load_env_file", return_value=None),
+            patch.object(send_mod, "telegram_from_env", return_value=cfg),
+            patch.object(send_mod, "notify", MagicMock()),
+            patch("sys.argv", ["governor.comms.send", "--html", "<b>hi</b>"]),
+            patch("governor.comms.send.TelegramClient") as MockTG,
+        ):
+            MockTG.return_value.send = AsyncMock(side_effect=_fake)
+            send_mod.main()
+
+        assert recorded == [("<b>hi</b>", "HTML")]
+
+    def test_no_html_flag_sends_plain(self):
+        """Without --html, parse_mode stays None (plain text — back-compat)."""
+        from governor.comms import send as send_mod
+
+        cfg = TelegramConfig(bot_token="bot123", chat_id="42")
+        recorded: list[tuple[str, str | None]] = []
+
+        async def _fake(text: str, parse_mode: str | None = None) -> None:
+            recorded.append((text, parse_mode))
+
+        with (
+            patch.object(send_mod, "load_env_file", return_value=None),
+            patch.object(send_mod, "telegram_from_env", return_value=cfg),
+            patch.object(send_mod, "notify", MagicMock()),
+            patch("sys.argv", ["governor.comms.send", "plain message"]),
+            patch("governor.comms.send.TelegramClient") as MockTG,
+        ):
+            MockTG.return_value.send = AsyncMock(side_effect=_fake)
+            send_mod.main()
+
+        assert recorded == [("plain message", None)]
 
 
 # ---------------------------------------------------------------------------
