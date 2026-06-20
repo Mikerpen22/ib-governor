@@ -19,6 +19,7 @@ from enum import Enum
 from governor.config import GateRules
 from governor.gate.intent import Action, OrderIntent, SecType
 from governor.model import Severity, StateSnapshot, Trip
+from governor.technicals.types import SetupAssessment
 
 
 def hypothetical_snapshot(
@@ -175,6 +176,7 @@ class GateFacts:
     lockout_active: bool = False             # an active lockout for this asset class
     sizing: SizingCheck | None = None        # per-trade size vs the NAV band
     buying_power_ok: bool = True             # whatIf shows sufficient buying power
+    setup: SetupAssessment | None = None     # candidate setup read; poor setup -> CAUTION
 
 
 @dataclass(frozen=True)
@@ -213,6 +215,9 @@ def decide(facts: GateFacts) -> GateVerdict:
         caution.append(
             f"trade is {facts.sizing.pct_nav:.1%} of NAV (over the sizing band)"
         )
+
+    if facts.setup is not None and facts.setup.poor:
+        caution.extend(facts.setup.caution_reasons)
 
     if block:
         return GateVerdict(Verdict.BLOCK, tuple(block))
