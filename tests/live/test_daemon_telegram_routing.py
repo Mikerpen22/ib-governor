@@ -42,7 +42,13 @@ def _daemon(tmp_path, config=None, token="TOK1"):
     d.tokens = ConfirmTokenGate(300, token_factory=lambda: token)
     d.lockout_store = LockoutStore(tmp_path / "l.json")
     d._alerts = []
-    d.alert = d._alerts.append
+    d.alert = d._alerts.append          # loud brake alerts
+    d._replies = []                     # chat replies (telegram-only)
+
+    async def _cap(text):
+        d._replies.append(text)
+
+    d._reply = _cap
     return d
 
 
@@ -76,7 +82,7 @@ async def test_order_confirm_routes_to_gate_submit(tmp_path, monkeypatch):
     await d.handle_telegram_text("CONFIRM A1B2C3D4E5F60789")
 
     assert submit_calls == ["A1B2C3D4E5F60789"]
-    assert any("PLACED" in a for a in d._alerts)
+    assert any("PLACED" in r for r in d._replies)
 
 
 async def test_gate_submit_error_is_relayed(tmp_path, monkeypatch):
@@ -87,7 +93,7 @@ async def test_gate_submit_error_is_relayed(tmp_path, monkeypatch):
 
     d = _daemon(tmp_path)
     await d.handle_telegram_text("CONFIRM DEADBEEF12345678")
-    assert any("BLOCKED" in a for a in d._alerts)
+    assert any("BLOCKED" in r for r in d._replies)
 
 
 async def test_natural_language_routes_to_agent(tmp_path, monkeypatch):
@@ -103,7 +109,7 @@ async def test_natural_language_routes_to_agent(tmp_path, monkeypatch):
     await d.handle_telegram_text("buy me 100 shares of oracle")
 
     assert seen == ["buy me 100 shares of oracle"]
-    assert any("CONFIRM ABC123" in a for a in d._alerts)
+    assert any("CONFIRM ABC123" in r for r in d._replies)
 
 
 async def test_confirm_prefixed_sentence_is_not_treated_as_a_submit(tmp_path, monkeypatch):
@@ -129,6 +135,33 @@ async def test_confirm_prefixed_sentence_is_not_treated_as_a_submit(tmp_path, mo
     assert agent_seen == ["confirm that oracle is a good buy here"]
 
 
+async def test_help_command_replies_help_without_agent(tmp_path, monkeypatch):
+    called = []
+
+    async def _fake_agent(text, cfg):
+        called.append(text)
+        return "x"
+
+    monkeypatch.setattr(daemon_mod, "run_agent", _fake_agent)
+    d = _daemon(tmp_path)
+    await d.handle_telegram_text("/start")
+
+    assert called == []                                   # help is not an order
+    assert any("brake" in r.lower() for r in d._replies)  # onboarding text
+
+
+async def test_agent_path_sends_instant_ack_before_the_analysis(tmp_path, monkeypatch):
+    async def _fake_agent(text, cfg):
+        return "GO — BUY 100 ORCL. Reply CONFIRM ABC123"
+
+    monkeypatch.setattr(daemon_mod, "run_agent", _fake_agent)
+    d = _daemon(tmp_path)
+    await d.handle_telegram_text("buy 100 ORCL")
+
+    assert len(d._replies) >= 2
+    assert "analyz" in d._replies[0].lower()              # ack arrives first (kills the silent void)
+
+
 async def test_disabled_agent_ignores_natural_language(tmp_path, monkeypatch):
     called = []
 
@@ -143,4 +176,4 @@ async def test_disabled_agent_ignores_natural_language(tmp_path, monkeypatch):
     await d.handle_telegram_text("buy me 100 oracle")
 
     assert called == []          # agent not invoked
-    assert d._alerts == []       # stays quiet
+    assert d._replies == []      # stays quiet

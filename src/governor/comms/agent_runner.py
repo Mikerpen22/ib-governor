@@ -85,19 +85,18 @@ def _agent_env() -> dict:
 async def _default_runner(argv: list[str], timeout: float) -> tuple[int, str, str]:
     return await run_capture(argv, timeout, env=_agent_env())
 
+# Normie-friendly: outcome + next step, no CLI/PATH internals (those go to logs).
 _DISABLED_MSG = (
-    "⚠️ Natural-language ordering is offline (telegram_agent disabled). "
-    "The brake is still running."
+    "⚠️ Order-by-text is turned off right now. Your safety brake is still running normally."
 )
 _UNAVAILABLE_MSG = (
-    "⚠️ Natural-language ordering is unavailable (the `claude` CLI isn't "
-    "installed or on PATH). The brake is still running."
+    "⚠️ Order-by-text is temporarily unavailable. Your safety brake is still running normally."
 )
 _FAILED_MSG = (
-    "⚠️ Couldn't process that order request — the analysis agent failed or timed "
-    "out. Try again, or run the gate from a terminal. The brake is unaffected."
+    "😕 I couldn't finish checking that one — mind sending it again? "
+    "(Your account is untouched.)"
 )
-_EMPTY_MSG = "⚠️ The analysis agent returned no reply. Try rephrasing the order."
+_EMPTY_MSG = "🤔 I didn't catch an order in that. Try e.g. 'buy 10 oracle', or send /help."
 
 
 def build_claude_argv(text: str, cfg) -> list[str]:

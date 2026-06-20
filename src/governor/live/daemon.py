@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import json
 import logging
 import re
 import secrets
@@ -92,11 +93,64 @@ def _confirm_token(text: str) -> str | None:
 
 
 async def _gate_submit(token: str, timeout: float) -> tuple[int, str, str]:
-    """Run `python -m governor.gate submit --token <token>` (never --override) as a
-    subprocess. This is the order-write path: the gate enforces both locks, the
-    _guarded chokepoint, and the BLOCK refusal. Module-level seam for tests."""
-    argv = [sys.executable, "-m", "governor.gate", "submit", "--token", token]
+    """Run `python -m governor.gate submit --token <token> --json` (never
+    --override) as a subprocess. This is the order-write path: the gate enforces
+    both locks, the _guarded chokepoint, and the BLOCK refusal. Module-level seam
+    for tests."""
+    argv = [sys.executable, "-m", "governor.gate", "submit", "--token", token, "--json"]
     return await run_capture(argv, timeout)
+
+
+# Submit can be slow on a cold TWS; give it its own (longer) budget rather than
+# reusing the agent's timeout, and treat a timeout as "uncertain" (the order may
+# already be live) rather than "failed".
+_SUBMIT_TIMEOUT_SECONDS = 60.0
+
+_HELP_TEXT = (
+    "👋 I'm your trading brake. Text me an order in plain English and I'll check it "
+    "against your rules before anything is placed.\n\n"
+    "Try:\n"
+    " • buy 10 oracle\n"
+    " • grab 2 micro nasdaq at 21000, stop 20900\n"
+    " • sell 50 SNAP at market\n\n"
+    "I'll reply with a risk read and a confirm token. Nothing is placed until you "
+    "reply CONFIRM <token>. Orders expire after ~5 minutes for safety."
+)
+
+
+def _is_fast_message(text: str) -> bool:
+    """Cheap messages (a command or a confirm) handled inline, ahead of slow agent
+    runs — so a CONFIRM is never queued behind a ~70s analysis and can't expire
+    while it waits."""
+    if text.strip().lower() in ("/start", "/help", "help"):
+        return True
+    return _confirm_token(text) is not None
+
+
+def _friendly_submit_reply(rc: int, out: str, err: str) -> str:
+    """Map gate-submit output to a normie-readable line that answers 'did money
+    move?' in the first words."""
+    if rc == 0:
+        try:
+            d = json.loads(out.strip().splitlines()[-1])
+        except Exception:  # noqa: BLE001 — fall back to raw text
+            return out.strip() or "✅ submitted"
+        label = f"{d.get('action', '?')} {int(d.get('quantity', 0) or 0)} {d.get('symbol', '?')}"
+        if d.get("placed"):
+            return f"✅ ORDER PLACED — {label} is live at IBKR now."
+        if d.get("dry_run"):
+            return (f"🧪 PRACTICE MODE — {label} was NOT placed; your account is "
+                    f"untouched (the bot is in safe / dry-run mode).")
+        return f"⚠️ {label} — submitted, but status is uncertain. Check TWS."
+    e = err.strip().lower()
+    if "block" in e:
+        return "🛑 BLOCKED — I did NOT place this order. Nothing happened to your account."
+    if "expired" in e or "already used" in e or "invalid" in e:
+        return ("⏳ That confirmation expired or was already used (orders time out after "
+                "~5 min). Text me the order again to get a fresh one.")
+    if "read-only" in e or "readonly" in e:
+        return "⚠️ Can't place — the connection is in read-only / safe mode. Nothing happened."
+    return "⚠️ Couldn't place that order. Nothing happened to your account."
 
 
 class BrakeDaemon:
@@ -212,39 +266,55 @@ class BrakeDaemon:
         self._execute(trip.action)
         return True
 
-    async def handle_telegram_text(self, text: str) -> None:
-        """Route one inbound Telegram message through the three branches:
+    async def _reply(self, text: str) -> None:
+        """Send a CHAT reply — telegram only. Distinct from alert(), which is for
+        loud brake notifications (telegram + macOS + WARNING log)."""
+        if self._telegram_cfg.enabled:
+            await self.telegram.send(text)
+        else:
+            log.info("telegram reply (telegram not configured): %s", text)
 
+    async def handle_telegram_text(self, text: str) -> None:
+        """Route one inbound Telegram message through the branches:
+
+        0. `/start` / `/help` -> onboarding text,
         1. a staged circuit-breaker ACTION confirm (in-memory token),
         2. an ORDER confirm (`CONFIRM <token>` -> gate submit chokepoint),
-        3. a natural-language order request (-> headless `claude -p` agent).
+        3. a natural-language order request (-> headless `claude -p` agent),
+           preceded by an instant ack so the user isn't staring at silence.
 
         Order placement never happens here — it flows through `gate submit`,
         which enforces both locks, the _guarded chokepoint, and the BLOCK
         refusal. The agent only proposes + stages.
         """
+        if text.strip().lower() in ("/start", "/help", "help"):
+            await self._reply(_HELP_TEXT)
+            return
         if self.on_confirm(text):
             return
         token = _confirm_token(text)
         if token is not None:
-            self.alert(await self._submit_staged_order(token))
+            await self._reply(await self._submit_staged_order(token))
             return
         if not self.config.telegram_agent.enabled:
             log.info("telegram_agent disabled — ignoring non-confirm message")
             return
-        self.alert(await run_agent(text, self.config.telegram_agent))
+        await self._reply("🔍 Got it — analyzing your order now (about a minute)…")
+        await self._reply(await run_agent(text, self.config.telegram_agent))
 
     async def _submit_staged_order(self, token: str) -> str:
         """Place a previously staged order via the gate submit chokepoint, and
         return a chat-ready result line. Never raises (failure -> a message)."""
         try:
-            rc, out, err = await _gate_submit(token, self.config.telegram_agent.timeout_seconds)
+            rc, out, err = await _gate_submit(token, _SUBMIT_TIMEOUT_SECONDS)
+        except (asyncio.TimeoutError, TimeoutError):
+            log.error("gate submit timed out for token %s", token)
+            return ("⚠️ The order is taking longer than expected — status is UNCERTAIN. "
+                    "Check TWS before re-sending so you don't place it twice.")
         except Exception as exc:  # noqa: BLE001 — a bad submit must not crash the poll loop
             log.error("gate submit failed: %s", exc)
-            return f"⚠️ submit failed: {exc}"
-        if rc == 0:
-            return out.strip() or "✅ submitted"
-        return f"⚠️ {err.strip() or 'submit rejected'}"
+            return "⚠️ Couldn't place that order. Nothing happened to your account."
+        return _friendly_submit_reply(rc, out, err)
 
     def _execute(self, action: ActionType) -> None:
         now = self._now()
@@ -314,24 +384,37 @@ class BrakeDaemon:
         # Drain any pre-startup backlog WITHOUT handling it: a `CONFIRM <token>`
         # the operator sent before a restart could otherwise auto-submit a staged
         # order that survived on disk — "nothing auto-fires" must hold across
-        # restarts too.
+        # restarts too. Tell the user so a dropped message isn't a silent void.
         try:
             backlog, self._tg_offset = await self.telegram.poll(self._tg_offset)
             if backlog:
                 log.warning("telegram: skipped %d backlog message(s) on startup", len(backlog))
+                await self._reply(
+                    f"♻️ I just restarted and skipped {len(backlog)} earlier message(s) "
+                    f"for safety — please resend anything you still want."
+                )
         except Exception as exc:  # noqa: BLE001
             log.error("telegram backlog drain failed: %s", exc)
         while True:
             try:
                 texts, self._tg_offset = await self.telegram.poll(self._tg_offset)
                 for text in texts:
-                    try:
-                        await self.handle_telegram_text(text)
-                    except Exception as exc:  # noqa: BLE001 — one bad message must not drop the rest
-                        log.error("handling telegram message failed: %s", exc)
+                    if _is_fast_message(text):
+                        await self._safe_handle(text)              # cheap: inline, ahead of agent runs
+                    else:
+                        asyncio.ensure_future(self._safe_handle(text))  # slow agent run: don't block the poll loop
             except Exception as exc:  # noqa: BLE001
                 log.error("telegram poll error: %s", exc)
                 await asyncio.sleep(5)
+
+    async def _safe_handle(self, text: str) -> None:
+        """Run handle_telegram_text guarded — one bad message (or a spawned agent
+        task) must never drop the poll loop."""
+        try:
+            await self.handle_telegram_text(text)
+        except Exception as exc:  # noqa: BLE001
+            log.error("handling telegram message failed: %s", exc)
+            await self._reply("⚠️ Something went wrong handling that. Your account is untouched.")
 
     def _refresh_if_stale(self) -> None:
         """Staleness-watchdog tick. A quiet market (no fills, between briefings) ages the

@@ -27,6 +27,7 @@ import argparse
 import datetime as dt
 import json
 import os
+import random
 import sys
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -475,9 +476,14 @@ def _maybe_agent_sandbox(config: RulesConfig) -> RulesConfig:
     daemon's own CONFIRM -> submit, whose process does NOT set this flag.
     """
     if os.getenv("GOVERNOR_AGENT_SANDBOX") == "1":
-        return config.model_copy(
-            update={"live": config.live.model_copy(update={"dry_run": True})}
+        # Force dry-run AND a randomized gate client id: the daemon now spawns
+        # agent analyses concurrently (and a manual `gate` CLI also uses id 5),
+        # so a fixed gate_client_id would collide ("client id already in use")
+        # and drop a legitimate analysis. A random high id makes collisions rare.
+        live = config.live.model_copy(
+            update={"dry_run": True, "gate_client_id": random.randint(20, 119)}
         )
+        return config.model_copy(update={"live": live})
     return config
 
 
