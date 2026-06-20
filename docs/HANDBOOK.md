@@ -238,6 +238,7 @@ VCP and Stage-2 are stock-only. For futures, the gate always runs the four-facto
 | `setup.min_bars` | `200` | Fewer bars than this → setup marked `available: False` |
 | `setup.equities.stage2_confirmed_min` | `6` | Minimum criteria count (of 7) to classify as `confirmed` |
 | `setup.equities.pivot_extended_pct` | `0.05` | Distance past pivot (5%) → `extended` → CAUTION |
+| `setup.equities.pivot_wait_pct` | `0.10` | Distance past pivot (10%) → `wait` band (sits between `extended` and `too_late`) |
 | `setup.equities.pivot_too_late_pct` | `0.15` | Distance past pivot (15%) → `too_late` |
 | `setup.equities.contraction_loose_pct` | `0.18` | Last contraction retracement > 18% → `too_loose` |
 | `setup.futures.atr_elevated_pctile` | `0.70` | ATR above this percentile → "elevated" vol → CAUTION |

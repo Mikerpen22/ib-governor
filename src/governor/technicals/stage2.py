@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from governor.config import EquitySetupRules
-from governor.technicals.indicators import rolling_sma, sma, slope_up
+from governor.technicals.indicators import sma
 from governor.technicals.types import Bar, Stage2Result
 
 
@@ -16,8 +16,9 @@ def compute_stage2(bars: list[Bar], cfg: EquitySetupRules) -> Stage2Result:
     rng = high52 - low52
     position_pct = (price - low52) / rng if rng > 0 else 0.0
     range_ratio = high52 / low52 if low52 > 0 else 0.0
-    ma200_series = rolling_sma(closes, 200)
-    slope = slope_up(ma200_series, cfg.ma200_slope_lookback)
+    lookback = cfg.ma200_slope_lookback
+    ma200_prev = sma(closes[:-lookback], 200) if lookback > 0 and len(closes) > lookback else None
+    slope = ma200 is not None and ma200_prev is not None and ma200 > ma200_prev
 
     criteria: list[tuple[str, bool]] = [
         ("price > MA50", ma50 is not None and price > ma50),

@@ -12,6 +12,7 @@ ib_async, no side effects.
 
 Glyph convention:
   ✅  pass / neutral
+  🟢  positive / in-range (e.g. futures location, VCP contraction quality)
   🟡  caution-level factor
   🔴  primary / strong warning (e.g. counter-trend)
   ⚠️  over-band / extended
@@ -112,12 +113,14 @@ def _equity_setup_panel(setup: dict) -> str:
     g_stack = _criteria_glyph(ma_stack)
     g_slope = _criteria_glyph(slope)
 
-    # 52-wk position (want >= 75%)
-    pos_ok = pos_pct >= 0.75
+    # 52-wk position and range: use the engine-computed pass/fail from the criteria list
+    # (a list of [label, passed] pairs) so a tuned threshold can't make the panel disagree.
+    criteria = s2.get("criteria", [])
+    _criteria_map = {c[0]: c[1] for c in criteria}
+    pos_ok = _criteria_map.get("52wk position", pos_pct >= 0.75)
     g_pos = _criteria_glyph(pos_ok, soft=True)
 
-    # Range ratio (want >= 1.3x)
-    range_ok = range_ratio >= 1.3
+    range_ok = _criteria_map.get("range >= ratio", range_ratio >= 1.3)
     g_range = _criteria_glyph(range_ok)
 
     header = f"📈 SETUP — Minervini   (Stage 2: {passes}/7 · {clf})"
@@ -187,9 +190,6 @@ def _futures_setup_panel(setup: dict) -> str:
     vol_expanding = fut.get("vol_expanding", False)
 
     dist_from_high = fut.get("dist_from_high_pct", 0.0)
-    # dist_from_low_pct is available in the gate payload but intentionally unused here —
-    # the location line always shows distance from the recent high (the trade-relevant side).
-    _dist_from_low = fut.get("dist_from_low_pct", 0.0)  # noqa: F841  (kept for completeness)
     chasing = fut.get("chasing", False)
 
     rsi_val = fut.get("rsi")
@@ -236,18 +236,18 @@ def _futures_setup_panel(setup: dict) -> str:
         loc_note = f"{loc_pct:+.1f}% vs 20d high"
 
     # 4. Momentum
-    if momentum_label == "overbought":
+    if momentum_label == "neutral":
+        mom_glyph = "✅"
+        mom_note = f"RSI {rsi_val:.0f} neutral"
+    elif momentum_label == "overbought":
         mom_glyph = "🟡"
         mom_note = f"RSI({rsi_val:.0f}) overbought — supports a fade" if rsi_val else "overbought"
     elif momentum_label == "oversold":
         mom_glyph = "🟡"
         mom_note = f"RSI({rsi_val:.0f}) oversold" if rsi_val else "oversold"
-    elif rsi_val is None:
+    else:
         mom_glyph = "🟡"
         mom_note = "n/a"
-    else:
-        mom_glyph = "✅"
-        mom_note = f"RSI {rsi_val:.0f} neutral"
 
     lines = [
         header,

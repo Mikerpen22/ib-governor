@@ -1,9 +1,10 @@
 # src/governor/live/history.py
 """Fail-soft daily-bar fetch for the candidate symbol, on the gate's existing socket.
 
-Mirrors live/daily.py::_fetch_daily_bars: reqHistoricalData (EOD bars are broadly
-entitled even without live market data) wrapped so ANY error yields None — the setup
-read degrades to 'unavailable', never sinking the risk gate.
+_request_daily_bars is the shared network layer (also used by daily.py); it
+returns a raw bar list on success or None on any error.  fetch_daily_bars wraps
+it with Bar conversion — the setup read degrades to 'unavailable', never sinking
+the risk gate.
 """
 from __future__ import annotations
 
@@ -14,15 +15,20 @@ from governor.technicals.types import Bar
 log = logging.getLogger("governor.live.history")
 
 
+def _request_daily_bars(ib, contract, duration, *, what_to_show="TRADES", use_rth=True):
+    """Fail-soft reqHistoricalData → raw bar list ([] on empty), or None on error."""
+    try:
+        return ib.reqHistoricalData(contract, endDateTime="", durationStr=duration,
+            barSizeSetting="1 day", whatToShow=what_to_show, useRTH=use_rth) or []
+    except Exception:  # noqa: BLE001 — best-effort; never sink the caller
+        log.warning("daily bars unavailable for %r", contract, exc_info=True)
+        return None
+
+
 def fetch_daily_bars(ib, contract, duration: str, *, what_to_show: str = "TRADES",
                      use_rth: bool = True) -> list[Bar] | None:
-    try:
-        raw = ib.reqHistoricalData(
-            contract, endDateTime="", durationStr=duration,
-            barSizeSetting="1 day", whatToShow=what_to_show, useRTH=use_rth,
-        ) or []
-    except Exception:  # noqa: BLE001 — setup is best-effort; a fetch failure must not sink the gate
-        log.warning("setup: historical bars unavailable for %r", contract, exc_info=True)
+    raw = _request_daily_bars(ib, contract, duration, what_to_show=what_to_show, use_rth=use_rth)
+    if raw is None:
         return None
     bars: list[Bar] = []
     for b in raw:

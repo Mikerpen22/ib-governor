@@ -124,6 +124,7 @@ class EquitySetupRules(BaseModel):
     min_range_ratio: PositiveFloat = 1.30        # 52wk high/low
     ma200_slope_lookback: NonNegativeInt = 20    # bars
     pivot_extended_pct: float = Field(0.05, gt=0, le=1)   # past pivot -> extended -> CAUTION
+    pivot_wait_pct: float = Field(0.10, gt=0, le=1)       # extended->wait boundary (must sit between extended and too_late)
     pivot_too_late_pct: float = Field(0.15, gt=0, le=1)
     contraction_loose_pct: float = Field(0.18, gt=0, le=1)
 
