@@ -50,21 +50,26 @@ def _values_after(argv, flag):
     return vals
 
 
-def test_argv_confines_agent_to_analyze_and_denies_write_paths():
-    """C1: --allowed-tools is additive to global settings, so confinement must be
-    enforced with deny rules + strict MCP, not just an allow-list."""
+def test_argv_allows_bash_denies_writes_and_isolates_mcp():
+    """Bare Bash auto-runs headless (scoped rules don't); the real guarantee is the
+    forced-dry-run sandbox env, with deny + strict-MCP as defense-in-depth."""
     argv = build_claude_argv("buy 100 ORCL", _cfg())
 
-    allowed = " ".join(_values_after(argv, "--allowed-tools"))
-    assert "governor.gate analyze" in allowed      # read-only analysis permitted
-    assert "submit" not in allowed                  # the allow-list never grants submit
+    allowed = _values_after(argv, "--allowed-tools")
+    assert "Bash" in allowed and "Read" in allowed   # bare Bash form runs headless
 
     disallowed = " ".join(_values_after(argv, "--disallowed-tools"))
-    assert "governor.gate submit" in disallowed     # deny wins over the global Bash(python *) allow
-    assert "place_order" in disallowed              # MCP write tool denied too
+    assert "governor.gate submit" in disallowed       # bonus deny (dry-run is the real block)
+    assert "place_order" in disallowed
 
-    # The inherited ibkr-tws MCP (with place_order) must not load at all.
-    assert "--strict-mcp-config" in argv
+    assert "--strict-mcp-config" in argv              # hard flag: ibkr-tws place_order MCP can't load
+
+
+def test_agent_env_forces_dry_run_sandbox():
+    from governor.comms.agent_runner import _agent_env
+    env = _agent_env()
+    assert env["GOVERNOR_AGENT_SANDBOX"] == "1"        # gate forced dry-run for the agent
+    assert "PATH" in env                                # inherits daemon env (claude/python resolution)
 
 
 def test_argv_appends_a_system_prompt():

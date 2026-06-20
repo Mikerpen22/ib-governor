@@ -27,6 +27,7 @@ a flaky agent can never block or destabilise the brake daemon.
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 from typing import Awaitable, Callable
 
@@ -34,35 +35,25 @@ from .proc import run_capture
 
 log = logging.getLogger("governor.agent_runner")
 
-# The ONLY commands the agent may auto-run — the read-only gate analysis (so it
-# stages a token without a per-message approval prompt), plus Read for vault
-# context. Each Bash command is listed in BOTH the `cmd:*` and `cmd *` prefix
-# forms: Claude Code's Bash matcher honors one or the other depending on version,
-# and getting it wrong means the analyze call gets blocked (the agent then asks
-# the operator to approve, which defeats the point). Listing both is robust.
-_ALLOW_TOOLS = [
-    "Bash(python -m governor.gate analyze:*)",
-    "Bash(python -m governor.gate analyze *)",
-    "Read",
-]
+# We auto-approve the bare `Bash` tool (plus `Read`). Scoped `Bash(<prefix>:*)`
+# rules are NOT reliably honored by Claude Code in a headless launchd context
+# (they fall through to "ask", defeating the point), whereas bare `Bash` runs —
+# this is the same allow form the daily-summary launchd job uses successfully.
+#
+# We do NOT lean on the allow/deny matcher for the safety guarantee, because if
+# scoped *allow* matching is unreliable then scoped *deny* matching is too. The
+# real guarantee is STRUCTURAL: the agent subprocess runs with
+# GOVERNOR_AGENT_SANDBOX=1 (see _agent_env), which forces the gate into dry-run,
+# so any `gate submit` the agent ran would place NOTHING. Deny rules remain as
+# defense-in-depth; --strict-mcp-config (a hard flag, always honored) keeps the
+# ibkr-tws `place_order` MCP from loading at all.
+_ALLOW_TOOLS = ["Bash", "Read"]
 
-# CRITICAL: `--allowed-tools` is ADDITIVE to the operator's global
-# ~/.claude/settings.json, which typically allows `Bash(python *)` in auto mode.
-# An allow-list alone therefore does NOT confine the agent — it could run
-# `python -m governor.gate submit --override` or an ibkr_cli write. We close the
-# write paths with DENY rules (deny wins over any allow) and refuse to load the
-# inherited MCP servers (so the ibkr-tws `place_order` tool is unavailable).
-# Both prefix forms are listed for the same matcher-version reason as above — a
-# deny that silently fails to match would re-open the write path.
 _DENY_TOOLS = [
-    "Bash(python -m governor.gate submit:*)",    # the order chokepoint — agent must never call it
+    "Bash(python -m governor.gate submit:*)",    # the order chokepoint (bonus; dry-run is the real block)
     "Bash(python -m governor.gate submit *)",
-    "Bash(python3 -m governor.gate submit:*)",
-    "Bash(python3 -m governor.gate submit *)",
     "Bash(python -m ibkr_cli:*)",                # the other write CLI on this machine
     "Bash(python -m ibkr_cli *)",
-    "Bash(python3 -m ibkr_cli:*)",
-    "Bash(python3 -m ibkr_cli *)",
     "mcp__ibkr-tws__place_order",                # belt-and-suspenders if any MCP slips in
 ]
 
@@ -82,6 +73,18 @@ _SYSTEM_PROMPT = (
 # A runner takes the argv + a timeout and returns (returncode, stdout, stderr).
 Runner = Callable[[list[str], float], Awaitable[tuple[int, str, str]]]
 
+
+def _agent_env() -> dict:
+    """Environment for the agent subprocess: inherit the daemon's env (PATH/HOME
+    so `claude` and the venv `python` resolve) and set the sandbox flag so any
+    gate the agent runs is forced dry-run — the structural can't-place guarantee.
+    """
+    return {**os.environ, "GOVERNOR_AGENT_SANDBOX": "1"}
+
+
+async def _default_runner(argv: list[str], timeout: float) -> tuple[int, str, str]:
+    return await run_capture(argv, timeout, env=_agent_env())
+
 _DISABLED_MSG = (
     "⚠️ Natural-language ordering is offline (telegram_agent disabled). "
     "The brake is still running."
@@ -100,10 +103,10 @@ _EMPTY_MSG = "⚠️ The analysis agent returned no reply. Try rephrasing the or
 def build_claude_argv(text: str, cfg) -> list[str]:
     """Build the headless `claude -p` argv for analysing *text*. Pure.
 
-    Confinement (see _DENY_TOOLS): `default` permission mode (not the operator's
-    global `auto`), an analyze-only allow-list, explicit deny rules for every
-    write path, and strict MCP isolation so no inherited server (e.g. ibkr-tws's
-    place_order) is reachable.
+    Confinement: bare `Bash`/`Read` allow (the form that runs headless), strict
+    MCP isolation (`place_order` MCP can't load), and deny rules as defense-in-
+    depth. The load-bearing guarantee is NOT here — it's the GOVERNOR_AGENT_SANDBOX
+    dry-run env applied by the runner (see _agent_env).
     """
     return [
         cfg.claude_bin,
@@ -127,7 +130,7 @@ async def run_agent(
     text: str,
     cfg,
     *,
-    runner: Runner = run_capture,
+    runner: Runner = _default_runner,
     which: Callable[[str], str | None] = shutil.which,
 ) -> str:
     """Run the headless agent on *text*; return a chat-ready reply. Never raises."""

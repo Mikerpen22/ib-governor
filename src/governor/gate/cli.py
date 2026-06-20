@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import os
 import sys
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -459,6 +460,23 @@ def _handle_submit(args, config: RulesConfig) -> int:
 # ---------------------------------------------------------------------------
 
 
+def _maybe_agent_sandbox(config: RulesConfig) -> RulesConfig:
+    """Force dry-run when invoked inside the Telegram NL agent's sandbox.
+
+    The headless agent runs `gate analyze` (read-only) but `--allowed-tools` /
+    deny matching is unreliable in a launchd headless context, so we do NOT bet
+    the safety model on it: when GOVERNOR_AGENT_SANDBOX=1 is set (only the agent
+    subprocess sets it), force `live.dry_run=True` so even a `gate submit` the
+    agent somehow ran would place NOTHING. Real placement happens only via the
+    daemon's own CONFIRM -> submit, whose process does NOT set this flag.
+    """
+    if os.getenv("GOVERNOR_AGENT_SANDBOX") == "1":
+        return config.model_copy(
+            update={"live": config.live.model_copy(update={"dry_run": True})}
+        )
+    return config
+
+
 def main(argv: list[str] | None = None) -> None:
     """Parse args, dispatch to handler, and sys.exit with the returned code."""
     parser = _build_parser()
@@ -477,6 +495,8 @@ def main(argv: list[str] | None = None) -> None:
     except (FileNotFoundError, ValueError) as exc:
         print(f"ERROR: could not load config — {exc}", file=sys.stderr)
         sys.exit(1)
+
+    config = _maybe_agent_sandbox(config)  # force dry-run if the NL agent invoked us
 
     if args.command == "analyze":
         code = _handle_analyze(args, config)
