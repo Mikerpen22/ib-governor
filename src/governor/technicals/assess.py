@@ -44,10 +44,10 @@ def assess_setup(sec_type: SecType, action: Action, bars: list[Bar] | None,
                                caution_reasons=())
     if sec_type is SecType.STK:
         eq = compute_equity_setup(bars, action, setup_cfg.equities)
-        return SetupAssessment(available=True, asset_class="equity", poor=eq.poor,
+        return SetupAssessment(available=True, asset_class=asset_class, poor=eq.poor,
                                caution_reasons=_equity_reasons(eq, action), equity=eq)
     fs = compute_futures_setup(bars, action, setup_cfg.futures)
-    return SetupAssessment(available=True, asset_class="future", poor=fs.poor,
+    return SetupAssessment(available=True, asset_class=asset_class, poor=fs.poor,
                            caution_reasons=_futures_reasons(fs), futures=fs)
 
 

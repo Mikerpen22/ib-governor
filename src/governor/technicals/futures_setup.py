@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from governor.config import FuturesSetupRules
 from governor.gate.intent import Action
-from governor.technicals.indicators import atr, percentile_rank, roc, rolling_atr, rsi, sma
+from governor.technicals.indicators import percentile_rank, pct_from_high, pct_from_low, roc, rolling_atr, rsi, sma
 from governor.technicals.types import Bar, FuturesSetup
 
 _VOL_EXPAND_LOOKBACK = 5  # bars; ATR now vs ATR a week ago -> expanding
@@ -28,8 +28,8 @@ def compute_futures_setup(bars: list[Bar], action: Action, cfg: FuturesSetupRule
     trend_label = "uptrend" if bullish else "downtrend" if bearish else "mixed"
 
     # --- Volatility regime ---
-    a = atr(bars, cfg.atr_period)
     atr_series = rolling_atr(bars, cfg.atr_period)
+    a = atr_series[-1] if atr_series else None
     window = atr_series[-cfg.atr_lookback:]
     atr_pctile = percentile_rank(window, a) if (a is not None and window) else 0.0
     vol_elevated = atr_pctile > cfg.atr_elevated_pctile
@@ -44,8 +44,8 @@ def compute_futures_setup(bars: list[Bar], action: Action, cfg: FuturesSetupRule
     win = bars[-cfg.range_lookback:]
     hi = max(b.high for b in win)
     lo = min(b.low for b in win)
-    dist_from_high_pct = (price - hi) / hi if hi > 0 else 0.0
-    dist_from_low_pct = (price - lo) / lo if lo > 0 else 0.0
+    dist_from_high_pct = pct_from_high(price, hi)
+    dist_from_low_pct = pct_from_low(price, lo)
     if is_long:
         chasing = price >= hi * (1 - cfg.extension_chase_pct)
     else:

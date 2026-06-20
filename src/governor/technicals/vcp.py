@@ -44,7 +44,7 @@ def _band(distance_pct: float, cfg: EquitySetupRules) -> str:
         return "pre_breakout"
     if distance_pct <= cfg.pivot_extended_pct:
         return "actionable"
-    if distance_pct <= 0.10:
+    if distance_pct <= cfg.pivot_wait_pct:
         return "extended"
     if distance_pct <= cfg.pivot_too_late_pct:
         return "wait"

@@ -36,6 +36,7 @@ from ib_async import Index, Stock
 
 from ..config import RulesConfig, load_config
 from ..rules.engine import evaluate
+from .history import _request_daily_bars
 from .snapshot import (
     _to_float,
     account_metrics,
@@ -86,23 +87,8 @@ def _last_two_closes(bars) -> tuple[float, float] | None:
 
 
 def _fetch_daily_bars(ib, contract):
-    """Fetch ~2 daily TRADES bars for a contract. FAIL-SOFT: returns [] on any error.
-
-    Uses reqHistoricalData (EOD bars) rather than reqTickers because this account
-    may lack live index/VIX market-data, while historical bars are broadly entitled.
-    """
-    try:
-        return ib.reqHistoricalData(
-            contract,
-            endDateTime="",
-            durationStr="2 D",
-            barSizeSetting="1 day",
-            whatToShow="TRADES",
-            useRTH=True,
-        ) or []
-    except Exception:  # noqa: BLE001 — backdrop is best-effort; never sink the collector
-        log.warning("market backdrop: historical bars unavailable for %r", contract, exc_info=True)
-        return []
+    """Fetch ~2 daily TRADES bars for a contract. FAIL-SOFT: returns [] on any error."""
+    return _request_daily_bars(ib, contract, "2 D") or []
 
 
 def collect_market_backdrop(ib) -> dict:
