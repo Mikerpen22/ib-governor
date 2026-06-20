@@ -34,9 +34,17 @@ from .proc import run_capture
 
 log = logging.getLogger("governor.agent_runner")
 
-# The ONLY Bash command the agent may run — the read-only gate analysis, scoped so
-# it cannot reach `gate submit` or any other command. Plus Read for vault context.
-_ANALYZE_TOOL = "Bash(python -m governor.gate analyze:*)"
+# The ONLY commands the agent may auto-run — the read-only gate analysis (so it
+# stages a token without a per-message approval prompt), plus Read for vault
+# context. Each Bash command is listed in BOTH the `cmd:*` and `cmd *` prefix
+# forms: Claude Code's Bash matcher honors one or the other depending on version,
+# and getting it wrong means the analyze call gets blocked (the agent then asks
+# the operator to approve, which defeats the point). Listing both is robust.
+_ALLOW_TOOLS = [
+    "Bash(python -m governor.gate analyze:*)",
+    "Bash(python -m governor.gate analyze *)",
+    "Read",
+]
 
 # CRITICAL: `--allowed-tools` is ADDITIVE to the operator's global
 # ~/.claude/settings.json, which typically allows `Bash(python *)` in auto mode.
@@ -44,12 +52,18 @@ _ANALYZE_TOOL = "Bash(python -m governor.gate analyze:*)"
 # `python -m governor.gate submit --override` or an ibkr_cli write. We close the
 # write paths with DENY rules (deny wins over any allow) and refuse to load the
 # inherited MCP servers (so the ibkr-tws `place_order` tool is unavailable).
+# Both prefix forms are listed for the same matcher-version reason as above — a
+# deny that silently fails to match would re-open the write path.
 _DENY_TOOLS = [
-    "Bash(python -m governor.gate submit:*)",   # the order chokepoint — agent must never call it
+    "Bash(python -m governor.gate submit:*)",    # the order chokepoint — agent must never call it
+    "Bash(python -m governor.gate submit *)",
     "Bash(python3 -m governor.gate submit:*)",
-    "Bash(python -m ibkr_cli:*)",               # the other write CLI on this machine
+    "Bash(python3 -m governor.gate submit *)",
+    "Bash(python -m ibkr_cli:*)",                # the other write CLI on this machine
+    "Bash(python -m ibkr_cli *)",
     "Bash(python3 -m ibkr_cli:*)",
-    "mcp__ibkr-tws__place_order",               # belt-and-suspenders if any MCP slips in
+    "Bash(python3 -m ibkr_cli *)",
+    "mcp__ibkr-tws__place_order",                # belt-and-suspenders if any MCP slips in
 ]
 
 _SYSTEM_PROMPT = (
@@ -101,8 +115,7 @@ def build_claude_argv(text: str, cfg) -> list[str]:
         "--mcp-config",
         '{"mcpServers": {}}',
         "--allowed-tools",
-        _ANALYZE_TOOL,
-        "Read",
+        *_ALLOW_TOOLS,
         "--disallowed-tools",
         *_DENY_TOOLS,
         "--append-system-prompt",
