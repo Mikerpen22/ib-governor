@@ -1,7 +1,7 @@
 """Frozen result types for the technical setup read. Pure data, no behavior."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
