@@ -216,7 +216,7 @@ The pre-trade gate automatically fetches daily bars for the symbol and renders a
 
 *Equities:*
 - **Stage 2 X/7** — Minervini's 7-criterion checklist: price above MA50 / MA150 / MA200, MA stack (50>150>200), MA200 slope rising, 52-week position ≥75%, and range ratio ≥1.3×. Classified as `confirmed` (6–7/7), `candidate` (4–5), or `none` (≤3).
-- **VCP pivot / distance** — the most recent contraction's pivot level, how far price is from it (`actionable` / `extended` / `too_late`), the last contraction grade, and a volume dry-up flag.
+- **VCP pivot / distance** — the most recent contraction's pivot level, how far price is from it (five bands: `pre_breakout` = price still below the pivot; `actionable` = ≤5% above; `extended` = 5–10% above; `wait` = 10–15% above, let it come back; `too_late` = >15% above), the last contraction grade, and a volume dry-up flag. The boolean `extended` flag (>5% past pivot) is the gate trigger for CAUTION; `distance_band` is the finer-grained descriptive bucket.
 
 *Futures:*
 - **Trend alignment** — price vs the 20/50/200-day MAs on the continuous contract. With-trend ✅, mixed 🟡, counter-trend 🔴.

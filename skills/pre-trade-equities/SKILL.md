@@ -68,7 +68,7 @@ Skip this step if you don't keep a vault.
 ## Step 4 — Setup (Minervini, from the gate)
 The gate now returns a `setup` block **and** a pre-rendered `panels` string directly in the JSON — no separate `/vcp` call is needed. The `setup` block includes:
 - `setup.equity.stage2` — a 7-point Minervini checklist: MA stack (50/150/200), MA200 slope, 52-week position, and range ratio. Classified as `confirmed` (≥6/7), `candidate` (4–5), or `none` (≤3).
-- `setup.equity.vcp` — VCP contraction sequence: pivot, distance from pivot (with band: `actionable` / `extended` / `too_late`), last contraction grade (`excellent` / `good` / `acceptable` / `too_loose`), and volume dry-up flag.
+- `setup.equity.vcp` — VCP contraction sequence: pivot, distance from pivot (with band: `pre_breakout` = price still below the pivot / `actionable` = ≤5% above / `extended` = 5–10% above / `wait` = 10–15% above, let it come back / `too_late` = >15% above), last contraction grade (`excellent` / `good` / `acceptable` / `too_loose`), and volume dry-up flag. Note: the boolean `extended` flag (fires when price is >5% past pivot) is the gate trigger for CAUTION; the `distance_band` string is the finer-grained descriptive bucket.
 - `setup.poor` — `true` when the gate has already escalated the verdict to CAUTION for setup reasons (not confirmed Stage 2, extended past pivot, or too-loose contraction). When `setup.poor` is true, the gate has already made the CAUTION call — your job in Steps 3–5 is to potentially escalate FURTHER via vault judgment, not to re-evaluate or double-count what the gate already decided.
 - `setup.caution_reasons` — the human-readable strings the gate added to `reasons`.
 

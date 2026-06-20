@@ -66,7 +66,7 @@ class FuturesSetup:
     chasing: bool
     rsi: float | None
     roc: float | None
-    momentum_label: str       # "overbought"|"oversold"|"neutral"
+    momentum_label: str       # "overbought"|"oversold"|"neutral"|"n/a"
     poor: bool
 
 
