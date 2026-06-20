@@ -31,20 +31,30 @@ def test_dry_run_says_practice_not_failure():
     assert "untouched" in msg.lower()
 
 
+def _err(reason):
+    return json.dumps({"ok": False, "reason": reason, "message": "..."})
+
+
 def test_block_error_is_clear_no_money_moved():
-    msg = _friendly_submit_reply(1, "", "ERROR: this order was BLOCKED by the gate")
+    msg = _friendly_submit_reply(1, _err("BLOCKED"), "")
     assert "BLOCK" in msg.upper()
     assert "nothing" in msg.lower() or "did not" in msg.lower()
 
 
 def test_expired_token_is_actionable():
-    msg = _friendly_submit_reply(1, "", "ERROR: token X is invalid, already used, or expired")
+    msg = _friendly_submit_reply(1, _err("EXPIRED"), "")
     assert "expired" in msg.lower() or "again" in msg.lower()
 
 
 def test_readonly_error_is_clear():
-    msg = _friendly_submit_reply(1, "", "ERROR: live.readonly is True ... read-only")
+    msg = _friendly_submit_reply(1, _err("READONLY"), "")
     assert "read-only" in msg.lower() or "safe mode" in msg.lower()
+
+
+def test_unparseable_output_is_uncertain_never_false_success():
+    msg = _friendly_submit_reply(0, "garbage not json", "")
+    assert "uncertain" in msg.lower()
+    assert "✅" not in msg                                   # never assert success on garbage
 
 
 @pytest.mark.parametrize("text,fast", [

@@ -25,7 +25,7 @@ from ..comms.notify import notify as macos_notify
 from ..comms.proc import run_capture
 from ..comms.telegram import TelegramClient
 from ..config import RulesConfig, load_config, load_env_file, telegram_from_env
-from ..gate.staged import StagedOrderStore
+from ..gate.staged import DEFAULT_STAGED_PATH, StagedOrderStore
 from ..model import ActionType, Severity, StateSnapshot, Trip
 from ..rules.engine import evaluate
 from ..state.hwm import HwmStore
@@ -44,9 +44,19 @@ _BENIGN_IB_CODES = {2104, 2106, 2107, 2108, 2119, 2158}
 
 # A staged-order / action confirm token: hex from secrets.token_hex(...).upper()
 # (8 chars for actions, 16 for orders). Hex-only + min-8 avoids matching ordinary
-# words after the CONFIRM keyword.
+# English words after the CONFIRM keyword (8-hex chatter like "DEADBEEF" is
+# tolerated — it just routes to submit and gets an "expired/invalid" reply).
 _TOKEN_RE = re.compile(r"^[0-9A-F]{8,}$")
 _TOKEN_STRIP = "`*_'\".,!?:;()[]"
+_COMMANDS = ("/start", "/help", "help")
+
+
+def _normalize_token(word: str) -> str | None:
+    """Strip markdown/punctuation, upper-case, and return the word iff it is a
+    token. One predicate shared by the typed-CONFIRM and button-callback paths so
+    they can't drift on what wrapping a user is allowed to put around a token."""
+    candidate = word.strip(_TOKEN_STRIP).upper()
+    return candidate if _TOKEN_RE.match(candidate) else None
 
 
 def next_briefing_dt(now: dt.datetime, briefing_times_et: list[str]) -> dt.datetime:
@@ -83,12 +93,13 @@ def _confirm_token(text: str) -> str | None:
     language message that merely mentions "confirm" without a token-shaped word
     (e.g. "confirm that ORCL is a buy") returns None and is routed to the agent.
     """
-    words = [w.strip(_TOKEN_STRIP).upper() for w in text.split()]
+    words = text.split()
     for i, word in enumerate(words):
-        if word == "CONFIRM":
-            for candidate in words[i + 1:]:        # first token-shaped word after CONFIRM
-                if _TOKEN_RE.match(candidate):
-                    return candidate
+        if word.strip(_TOKEN_STRIP).upper() == "CONFIRM":
+            for nxt in words[i + 1:]:              # first token-shaped word after CONFIRM
+                tok = _normalize_token(nxt)
+                if tok is not None:
+                    return tok
             return None
     return None
 
@@ -123,35 +134,40 @@ def _is_fast_message(text: str) -> bool:
     """Cheap messages (a command or a confirm) handled inline, ahead of slow agent
     runs — so a CONFIRM is never queued behind a ~70s analysis and can't expire
     while it waits."""
-    if text.strip().lower() in ("/start", "/help", "help"):
+    if text.strip().lower() in _COMMANDS:
         return True
     return _confirm_token(text) is not None
 
 
+_REASON_REPLIES = {
+    "BLOCKED": "🛑 BLOCKED — I did NOT place this order. Nothing happened to your account.",
+    "EXPIRED": ("⏳ That confirmation expired or was already used (orders time out after "
+                "~5 min). Text me the order again to get a fresh one."),
+    "READONLY": "⚠️ Can't place — the connection is in read-only / safe mode. Nothing happened.",
+    "INVALID_INTENT": "⚠️ Couldn't place that order — the staged order was invalid. Please re-send it.",
+}
+
+
 def _friendly_submit_reply(rc: int, out: str, err: str) -> str:
-    """Map gate-submit output to a normie-readable line that answers 'did money
-    move?' in the first words."""
-    if rc == 0:
-        try:
-            d = json.loads(out.strip().splitlines()[-1])
-        except Exception:  # noqa: BLE001 — fall back to raw text
-            return out.strip() or "✅ submitted"
-        label = f"{d.get('action', '?')} {int(d.get('quantity', 0) or 0)} {d.get('symbol', '?')}"
-        if d.get("placed"):
-            return f"✅ ORDER PLACED — {label} is live at IBKR now."
-        if d.get("dry_run"):
-            return (f"🧪 PRACTICE MODE — {label} was NOT placed; your account is "
-                    f"untouched (the bot is in safe / dry-run mode).")
-        return f"⚠️ {label} — submitted, but status is uncertain. Check TWS."
-    e = err.strip().lower()
-    if "block" in e:
-        return "🛑 BLOCKED — I did NOT place this order. Nothing happened to your account."
-    if "expired" in e or "already used" in e or "invalid" in e:
-        return ("⏳ That confirmation expired or was already used (orders time out after "
-                "~5 min). Text me the order again to get a fresh one.")
-    if "read-only" in e or "readonly" in e:
-        return "⚠️ Can't place — the connection is in read-only / safe mode. Nothing happened."
-    return "⚠️ Couldn't place that order. Nothing happened to your account."
+    """Map gate-submit `--json` output to a normie-readable line that answers
+    'did money move?' first. The gate emits a structured object on stdout for both
+    success and failure (a `reason` code on error), so we switch on fields, not
+    fragile stderr prose."""
+    try:
+        d = json.loads(out.strip().splitlines()[-1])
+    except Exception:  # noqa: BLE001 — no structured output: never assert success
+        return "⚠️ Order status is uncertain — please check TWS before re-sending."
+    reason = d.get("reason")
+    if reason:
+        return _REASON_REPLIES.get(
+            reason, "⚠️ Couldn't place that order. Nothing happened to your account.")
+    label = f"{d.get('action', '?')} {int(d.get('quantity', 0) or 0)} {d.get('symbol', '?')}"
+    if d.get("placed"):
+        return f"✅ ORDER PLACED — {label} is live at IBKR now."
+    if d.get("dry_run"):
+        return (f"🧪 PRACTICE MODE — {label} was NOT placed; your account is "
+                f"untouched (the bot is in safe / dry-run mode).")
+    return f"⚠️ {label} — submitted, but status is uncertain. Check TWS."
 
 
 def _confirm_keyboard(token: str) -> dict:
@@ -184,6 +200,15 @@ class BrakeDaemon:
         self._last_executed: dict[str, dt.datetime] = {}  # action.value -> last successful execute (cooldown)
         self._active_soft_keys: set[str] = set()  # rule_ids of standing WARN/INFO trips already announced (edge-triggered alerts)
         self._tg_offset = 0
+        # Serialize order placement/cancel so two near-simultaneous taps/types of
+        # the same token can't both consume it and double-submit (the staged-file
+        # read-modify-write isn't atomic across the spawned gate subprocesses).
+        self._place_lock = asyncio.Lock()
+        # Bound + track spawned agent runs so a burst of orders can't fork
+        # unbounded `claude` subprocesses (starving the brake loop) or be GC'd
+        # mid-flight (asyncio keeps only a weak ref to bare-future tasks).
+        self._agent_sema = asyncio.Semaphore(2)
+        self._agent_tasks: set[asyncio.Task] = set()
 
     @property
     def ib(self):
@@ -300,7 +325,7 @@ class BrakeDaemon:
         which enforces both locks, the _guarded chokepoint, and the BLOCK
         refusal. The agent only proposes + stages.
         """
-        if text.strip().lower() in ("/start", "/help", "help"):
+        if text.strip().lower() in _COMMANDS:
             await self._reply(_HELP_TEXT)
             return
         if self.on_confirm(text):
@@ -312,8 +337,9 @@ class BrakeDaemon:
         if not self.config.telegram_agent.enabled:
             log.info("telegram_agent disabled — ignoring non-confirm message")
             return
-        await self._reply("🔍 Got it — analyzing your order now (about a minute)…")
-        reply = await run_agent(text, self.config.telegram_agent)
+        async with self._agent_sema:    # bound concurrent agent subprocesses
+            await self._reply("🔍 Got it — analyzing your order now (about a minute)…")
+            reply = await run_agent(text, self.config.telegram_agent)
         # If the agent proposed an order (its reply carries a CONFIRM token),
         # attach ✅/✖️ buttons; a BLOCK / clarifying reply has no token -> no buttons.
         await self._reply(reply, token=_confirm_token(reply))
@@ -321,26 +347,31 @@ class BrakeDaemon:
     async def handle_callback(self, data: str, callback_id: str | None = None) -> None:
         """Handle an inline-button tap. `data` is 'confirm:<token>' / 'cancel:<token>'.
         Same safety path as a typed CONFIRM — the token gates placement."""
+        action, _, raw = data.partition(":")
+        token = _normalize_token(raw)
+        if token is None:                       # malformed/forged tap → tell the user, do nothing
+            if callback_id is not None and self._telegram_cfg.enabled:
+                await self.telegram.answer_callback(callback_id, text="Expired or invalid")
+            return
         if callback_id is not None and self._telegram_cfg.enabled:
             await self.telegram.answer_callback(callback_id)  # clear the tap spinner
-        action, _, raw = data.partition(":")
-        token = raw.strip().upper()
-        if not _TOKEN_RE.match(token):
-            return
         if action == "confirm":
             await self._reply(await self._submit_staged_order(token))
         elif action == "cancel":
             await self._reply(await self._cancel_staged_order(token))
 
     async def _cancel_staged_order(self, token: str) -> str:
-        """Consume + discard a staged order so it can't be confirmed later."""
-        store = StagedOrderStore("config/staged_orders.json",
+        """Consume + discard a staged order so it can't be confirmed later. Shares
+        the placement lock so a cancel can't race a concurrent confirm of the same
+        token (both consuming the non-atomic staged file)."""
+        store = StagedOrderStore(DEFAULT_STAGED_PATH,
                                  ttl_seconds=self.config.live.confirm_ttl_seconds)
-        try:
-            record = store.consume(token, self._now())
-        except Exception as exc:  # noqa: BLE001 — never crash the loop on a bad cancel
-            log.error("cancel failed: %s", exc)
-            return "⚠️ Couldn't cancel that — try again."
+        async with self._place_lock:
+            try:
+                record = store.consume(token, self._now())
+            except Exception as exc:  # noqa: BLE001 — never crash the loop on a bad cancel
+                log.error("cancel failed: %s", exc)
+                return "⚠️ Couldn't cancel that — try again."
         if record is None:
             return "Nothing to cancel — that order was already placed, cancelled, or expired."
         sym = record.get("intent", {}).get("symbol", "your")
@@ -348,7 +379,13 @@ class BrakeDaemon:
 
     async def _submit_staged_order(self, token: str) -> str:
         """Place a previously staged order via the gate submit chokepoint, and
-        return a chat-ready result line. Never raises (failure -> a message)."""
+        return a chat-ready result line. Never raises (failure -> a message).
+        Serialized under _place_lock so two near-simultaneous confirms of the same
+        token can't both consume it and double-submit."""
+        async with self._place_lock:
+            return await self._submit_locked(token)
+
+    async def _submit_locked(self, token: str) -> str:
         try:
             rc, out, err = await _gate_submit(token, _SUBMIT_TIMEOUT_SECONDS)
         except (asyncio.TimeoutError, TimeoutError):
@@ -448,7 +485,12 @@ class BrakeDaemon:
                     if _is_fast_message(text):
                         await self._safe_handle(text)              # cheap: inline, ahead of agent runs
                     else:
-                        asyncio.ensure_future(self._safe_handle(text))  # slow agent run: don't block the poll loop
+                        # slow agent run: don't block the poll loop. Hold a strong
+                        # ref (asyncio keeps only a weak one) so it can't be GC'd
+                        # mid-flight; the semaphore bounds concurrency.
+                        task = asyncio.ensure_future(self._safe_handle(text))
+                        self._agent_tasks.add(task)
+                        task.add_done_callback(self._agent_tasks.discard)
             except Exception as exc:  # noqa: BLE001
                 log.error("telegram poll error: %s", exc)
                 await asyncio.sleep(5)

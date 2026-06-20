@@ -76,7 +76,7 @@ async def test_order_confirm_routes_to_gate_submit(tmp_path, monkeypatch):
 
     async def _fake_gate_submit(token, timeout):
         submit_calls.append(token)
-        return 0, "submit: BUY 100 ORCL — PLACED", ""
+        return 0, '{"action":"BUY","symbol":"ORCL","quantity":100,"placed":true,"dry_run":false}', ""
 
     monkeypatch.setattr(daemon_mod, "_gate_submit", _fake_gate_submit)
 
@@ -89,7 +89,7 @@ async def test_order_confirm_routes_to_gate_submit(tmp_path, monkeypatch):
 
 async def test_gate_submit_error_is_relayed(tmp_path, monkeypatch):
     async def _fake_gate_submit(token, timeout):
-        return 1, "", "ERROR: this order was BLOCKED by the gate"
+        return 1, '{"ok":false,"reason":"BLOCKED","message":"blocked"}', ""
 
     monkeypatch.setattr(daemon_mod, "_gate_submit", _fake_gate_submit)
 

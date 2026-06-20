@@ -386,6 +386,22 @@ class TestSubmitToken:
         assert submit_calls == []                       # never reached the write path
         assert "BLOCK" in capsys.readouterr().err
 
+    def test_submit_json_emits_structured_reason_on_block(self, monkeypatch, tmp_path, capsys):
+        """--json submit of a BLOCK-staged token emits a machine `reason` on stdout
+        (so the daemon switches on a code, not fragile stderr prose)."""
+        import json as _json
+        import governor.gate.cli as cli
+
+        token, staged_path = self._stage_blocked(tmp_path)
+        _patch_cli_seams(monkeypatch, tmp_path, verdict=_go_verdict(), preview=_go_preview())
+        monkeypatch.setattr(cli, "_staged_path", lambda config: staged_path)
+
+        with pytest.raises(SystemExit) as exc:
+            cli.main(["submit", "--token", token, "--json"])
+        assert exc.value.code == 1
+        data = _json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+        assert data == {"ok": False, "reason": "BLOCKED", "message": data["message"]}
+
     def test_submit_armed_but_readonly_fails_loud(self, monkeypatch, tmp_path, capsys):
         """dry_run=False + readonly=True: TWS silently rejects, so submit must
         fail loud (nonzero, no write) instead of reporting a phantom 'PLACED'."""
