@@ -46,7 +46,7 @@ from governor.gate.intent import (
 )
 from governor.gate.order_catalog import TIF_CHOICES, render_table
 from governor.gate.runner import analyze_intent, submit_intent
-from governor.gate.staged import StagedOrderStore
+from governor.gate.staged import DEFAULT_STAGED_PATH, StagedOrderStore
 from governor.live.builder import build_live_snapshot
 from governor.live.connection import BrakeConnection
 from governor.live.sector import SectorResolver
@@ -89,8 +89,9 @@ def _make_connection(config: RulesConfig) -> BrakeConnection:
 
 
 def _staged_path(config: RulesConfig) -> Path:
-    """Return the Path for the staged-orders file."""
-    return _REPO_ROOT / "config" / "staged_orders.json"
+    """Return the Path for the staged-orders file (the shared, repo-anchored
+    source of truth — also used by the daemon's cancel path)."""
+    return DEFAULT_STAGED_PATH
 
 
 def build_current_snapshot(ib, config: RulesConfig):
@@ -373,6 +374,17 @@ def _handle_order_types() -> int:
 # ---------------------------------------------------------------------------
 
 
+def _submit_error(args, reason: str, message: str) -> int:
+    """Report a submit failure: a structured `{ok:false, reason}` on stdout for
+    --json callers (the daemon switches on the code), else human text on stderr.
+    Always returns exit code 1."""
+    if args.json_output:
+        print(json.dumps({"ok": False, "reason": reason, "message": message}))
+    else:
+        print(f"ERROR: {message}", file=sys.stderr)
+    return 1
+
+
 def _handle_submit(args, config: RulesConfig) -> int:
     """Consume a staged token and place the order. Returns exit code."""
     now = _get_now()
@@ -383,12 +395,9 @@ def _handle_submit(args, config: RulesConfig) -> int:
     )
     record = store.consume(args.token, now)
     if record is None:
-        print(
-            f"ERROR: token {args.token!r} is invalid, already used, or expired — "
-            "re-run 'analyze' to get a fresh token.",
-            file=sys.stderr,
-        )
-        return 1
+        return _submit_error(args, "EXPIRED",
+                             f"token {args.token!r} is invalid, already used, or expired — "
+                             "re-run 'analyze' to get a fresh token.")
 
     intent_dict = record["intent"]
     staged_verdict = record.get("verdict")
@@ -397,28 +406,25 @@ def _handle_submit(args, config: RulesConfig) -> int:
     # This is the deterministic guarantee behind "the phone can't punch through
     # the brake" — the daemon's confirm path never passes --override.
     if staged_verdict == Verdict.BLOCK.value and not args.override:
-        print(
-            "ERROR: this order was BLOCKED by the gate — refusing to place it. "
-            "Re-run 'analyze' and clear the block, or pass --override to force.",
-            file=sys.stderr,
-        )
-        return 1
+        return _submit_error(args, "BLOCKED",
+                             "this order was BLOCKED by the gate — refusing to place it. "
+                             "Re-run 'analyze' and clear the block, or pass --override to force.")
 
     try:
         intent = OrderIntent(**intent_dict)
     except (ValidationError, ValueError) as exc:
-        print(f"ERROR: staged intent is invalid — {exc}", file=sys.stderr)
-        return 1
+        return _submit_error(args, "INVALID_INTENT", f"staged intent is invalid — {exc}")
 
-    # Warn on armed-but-readonly misconfiguration: dry_run=False with readonly=True
-    # means TWS will silently reject the order even though the CLI would report success.
+    # Fail loud on armed-but-readonly misconfiguration: dry_run=False with
+    # readonly=True means TWS would SILENTLY reject the order while the synchronous
+    # placeOrder call still returns "PLACED" — the user would believe a phantom
+    # order is live. Refuse to submit instead of reporting a false success.
     if not config.live.dry_run and config.live.readonly:
-        print(
-            "⚠️  live.dry_run is False but live.readonly is True — the IB API "
-            "connection is read-only, so TWS will REJECT this order. Set "
-            "readonly: false in config/rules.yaml to actually place orders.",
-            file=sys.stderr,
-        )
+        return _submit_error(args, "READONLY",
+                             "live.dry_run is False but live.readonly is True — the IB API "
+                             "connection is read-only, so TWS would REJECT this order while the "
+                             "CLI reported success. Refusing to submit. Set readonly: false in "
+                             "config/rules.yaml to actually place orders.")
 
     # Connect
     conn = _make_connection(config)
@@ -471,9 +477,15 @@ def _maybe_agent_sandbox(config: RulesConfig) -> RulesConfig:
     daemon's own CONFIRM -> submit, whose process does NOT set this flag.
     """
     if os.getenv("GOVERNOR_AGENT_SANDBOX") == "1":
-        return config.model_copy(
-            update={"live": config.live.model_copy(update={"dry_run": True})}
+        # Force dry-run AND a per-process gate client id: the daemon spawns agent
+        # analyses concurrently (and a manual `gate` CLI also uses id 5), so a
+        # fixed gate_client_id would collide ("client id already in use") and drop
+        # a legitimate analysis. Derive from this process's PID so each concurrent
+        # analyze gets a distinct id (mod into a high range clear of 4/5/6).
+        live = config.live.model_copy(
+            update={"dry_run": True, "gate_client_id": 20 + os.getpid() % 100}
         )
+        return config.model_copy(update={"live": live})
     return config
 
 

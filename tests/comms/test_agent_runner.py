@@ -86,7 +86,7 @@ async def test_disabled_returns_graceful_message_without_running():
     reply = await run_agent("buy 100 ORCL", _cfg(enabled=False),
                             runner=runner, which=lambda b: "/usr/bin/claude")
     assert runner.calls == []
-    assert "offline" in reply.lower() or "disabled" in reply.lower()
+    assert "off" in reply.lower() or "unavailable" in reply.lower()
 
 
 async def test_missing_binary_returns_graceful_message_without_running():

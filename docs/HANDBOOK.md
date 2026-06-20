@@ -206,11 +206,22 @@ and replies with the decision + a confirm token. Nothing is placed until you tap
 
 ```mermaid
 flowchart TD
-    MSG["you text the bot:  'buy me 100 oracle here?'"] --> AGENT["headless claude -p<br/>(/pre-trade skill, analyze-only tools)"]
-    AGENT --> PANEL["replies: interpreted order + verdict + token"]
-    PANEL --> REPLY["you reply:  CONFIRM &lt;token&gt;"]
-    REPLY --> SUBMIT["gate submit (the one write path; locks + BLOCK refusal honored)"]
+    MSG["you text the bot:  'buy me 100 oracle here?'"] --> ACK["instant '🔍 analyzing…' ack"]
+    ACK --> AGENT["headless claude -p<br/>(/pre-trade skill, analyze-only tools)"]
+    AGENT --> PANEL["replies: interpreted order + verdict + ✅/✖️ buttons"]
+    PANEL --> TAP["you tap ✅ Place order  (or reply CONFIRM &lt;token&gt;)"]
+    TAP --> SUBMIT["gate submit (the one write path; locks + BLOCK refusal honored)"]
 ```
+
+**What you'll see (the phone experience):**
+- Text `/help` any time for a quick how-to. New here? `/start`.
+- After you send an order you get an **instant "🔍 analyzing…" ack** (the read
+  takes ~a minute), then the verdict with **tap-to-confirm ✅/✖️ buttons** — no
+  need to type the token (typing `CONFIRM <token>` still works as a fallback).
+- The result is plain English and always says whether money moved:
+  **✅ ORDER PLACED** · **🧪 PRACTICE MODE** (safe/dry-run — nothing bought) ·
+  **🛑 BLOCKED** · **⏳ expired** (orders time out after ~5 min — just resend).
+- Tap **✖️ Cancel** to discard a staged order before it's placed.
 
 What to know:
 

@@ -26,6 +26,12 @@ from typing import Callable
 
 from ..state.json_store import load_json, save_json
 
+# Repo-anchored default path for the staged-order file — the single source of
+# truth shared by the gate (analyze stages, submit consumes) and the daemon
+# (cancel consumes), so they never diverge on which file they touch regardless
+# of the process's working directory. src/governor/gate/staged.py -> repo root.
+DEFAULT_STAGED_PATH = Path(__file__).resolve().parents[3] / "config" / "staged_orders.json"
+
 
 class StagedOrderStore:
     def __init__(
