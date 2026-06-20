@@ -242,14 +242,27 @@ class BrakeDaemon:
                 log.error("telegram poll error: %s", exc)
                 await asyncio.sleep(5)
 
+    def _refresh_if_stale(self) -> None:
+        """Staleness-watchdog tick. A quiet market (no fills, between briefings) ages the
+        snapshot — that's NORMAL, not a fault — so refresh SILENTLY to keep state warm and
+        prove data still flows. Only scream BRAKE BLIND if the refresh itself FAILS (a
+        genuine stall: socket up but data dead). A dropped link is handled by the
+        disconnect path, not here."""
+        if not self.ib.isConnected():
+            return  # disconnect path already screams BRAKE BLIND
+        if not is_stale(self._last_built, self._now(), self.config.live.staleness_seconds * 3):
+            return
+        log.info("staleness watchdog: snapshot aged — refreshing quietly")
+        try:
+            self.evaluate_and_handle("staleness")
+        except Exception as exc:  # noqa: BLE001 — a failed refresh IS the blind condition
+            self.alert(f"\U0001f6d1 BRAKE BLIND: snapshot refresh failed ({exc}) — "
+                       f"data may be stale; check TWS.")
+
     async def _staleness_loop(self) -> None:
         while True:
             await asyncio.sleep(self.config.live.staleness_seconds)
-            if not self.ib.isConnected():
-                continue  # disconnect path already screams BRAKE BLIND
-            if is_stale(self._last_built, self._now(), self.config.live.staleness_seconds * 3):
-                self.alert("⚠️ BRAKE BLIND? no fresh snapshot recently — forcing a recheck.")
-                self.evaluate_and_handle("staleness")
+            self._refresh_if_stale()
 
     def run(self) -> None:
         self.conn.connect()
