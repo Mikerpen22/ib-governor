@@ -160,3 +160,47 @@ class TestSetupWiredIntoVerdict:
             FakeLockoutStore(), now=_NOW,
         )
         assert preview["verdict"] == "GO"
+
+
+# ---------------------------------------------------------------------------
+# Task 13 tests — preview carries a "panels" key
+# ---------------------------------------------------------------------------
+
+
+class TestPreviewIncludesPanels:
+    """Verify analyze_intent adds preview['panels'] = render_panels(preview) (str)."""
+
+    def test_panels_key_present(self):
+        ib = SetupFakeIB()
+        _, preview = runner.analyze_intent(
+            ib, _stk_intent(qty=1.0), _snap(), RulesConfig(),
+            FakeLockoutStore(), now=_NOW,
+        )
+        assert "panels" in preview
+
+    def test_panels_is_str(self):
+        ib = SetupFakeIB()
+        _, preview = runner.analyze_intent(
+            ib, _stk_intent(qty=1.0), _snap(), RulesConfig(),
+            FakeLockoutStore(), now=_NOW,
+        )
+        assert isinstance(preview["panels"], str)
+
+    def test_panels_contains_three_section_headers(self):
+        ib = SetupFakeIB()
+        _, preview = runner.analyze_intent(
+            ib, _stk_intent(qty=1.0), _snap(), RulesConfig(),
+            FakeLockoutStore(), now=_NOW,
+        )
+        panels = preview["panels"]
+        assert "ORDER" in panels
+        assert "RISK" in panels
+        assert "SETUP" in panels
+
+    def test_panels_not_empty(self):
+        ib = SetupFakeIB()
+        _, preview = runner.analyze_intent(
+            ib, _stk_intent(qty=1.0), _snap(), RulesConfig(),
+            FakeLockoutStore(), now=_NOW,
+        )
+        assert len(preview["panels"]) > 50

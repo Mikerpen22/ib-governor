@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 from ib_async import Future, LimitOrder, Stock, StopOrder
 
 from governor.config import RulesConfig
+from governor.gate.render import render_panels
 from governor.gate.analysis import (
     GateFacts,
     GateVerdict,
@@ -447,6 +448,10 @@ def analyze_intent(
         preview["risk_usd"] = abs(price - intent.stop_loss) * intent.quantity * mult
     if intent.take_profit is not None:
         preview["take_profit"] = intent.take_profit
+
+    # Rendered confirmation panels (ORDER / RISK / SETUP) — pure, no I/O.
+    # Added after the preview dict is fully built so all keys are present.
+    preview["panels"] = render_panels(preview)
 
     return verdict, preview
 

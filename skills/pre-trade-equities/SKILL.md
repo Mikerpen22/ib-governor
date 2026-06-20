@@ -65,8 +65,14 @@ Only if you keep a research vault (`VAULT_DIR` set):
 
 Skip this step if you don't keep a vault.
 
-## Step 4 — (Optional) Compose other analysis
-If you have companion analysis tools, use them as relevant — e.g. a Stage-2 / VCP read (sound entry vs. extended/chasing), or a current portfolio leverage + concentration check.
+## Step 4 — Setup (Minervini, from the gate)
+The gate now returns a `setup` block **and** a pre-rendered `panels` string directly in the JSON — no separate `/vcp` call is needed. The `setup` block includes:
+- `setup.equity.stage2` — a 7-point Minervini checklist: MA stack (50/150/200), MA200 slope, 52-week position, and range ratio. Classified as `confirmed` (≥6/7), `candidate` (4–5), or `none` (≤3).
+- `setup.equity.vcp` — VCP contraction sequence: pivot, distance from pivot (with band: `actionable` / `extended` / `too_late`), last contraction grade (`excellent` / `good` / `acceptable` / `too_loose`), and volume dry-up flag.
+- `setup.poor` — `true` when the gate has already escalated to CAUTION for setup reasons (not confirmed Stage 2, extended past pivot, or too-loose contraction).
+- `setup.caution_reasons` — the human-readable strings the gate added to `reasons`.
+
+The rendered `panels` string (ORDER / RISK & SIZING / SETUP) is ready to display verbatim — paste it directly into the confirmation screen in Step 6.
 
 ## Step 5 — Synthesize the verdict
 Combine the deterministic facts (Step 2) with any vault judgment (Steps 3–4). You may **escalate** the gate's verdict (toward caution) but never **downgrade** a deterministic BLOCK:
@@ -77,13 +83,22 @@ Combine the deterministic facts (Step 2) with any vault judgment (Steps 3–4). 
 Equities methodology to apply: size-vs-stop ≤ 1.5% NAV, the concentration impact of *this* add (`name_weight_before → after`), an extended/chasing check, and (if present) your vault thesis for the ticker.
 
 ## Step 6 — Present, then confirm-gated submit
-Show the user, concisely:
-- the trade (action / qty / symbol / type / price),
-- the key facts (size %, margin, concentration before→after, any trips),
-- the vault learnings that matter (if any),
-- your **VERDICT** with one-paragraph reasoning.
+Show the confirmation screen in this exact order:
 
-Then **ask for explicit confirmation.** Only if the user clearly confirms, submit with the staged token:
+**1. Banner** — one line stating the FINAL verdict (yours, after vault escalation) and the order:
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🟢 GO  /  🟡 CAUTION  /  🔴 BLOCK  ·  <action> <qty> <SYMBOL> · <order type>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**2. Panels** — paste `preview["panels"]` verbatim. This is the pre-rendered ORDER / RISK & SIZING / SETUP output from the gate (no reformatting needed).
+
+**3. 🧭 VERDICT** — one paragraph synthesizing the gate facts, setup read, and vault into your call. State the one thing that would change it (e.g. "If price pulls back to the pivot, this becomes a clean actionable entry").
+
+**4. 📓 VAULT** — the relevant notes from the vault: active thesis, prior losses on this name, written rules that apply.
+
+**5. Confirm line** — ask for explicit confirmation before submitting. Only if the user clearly confirms, submit with the staged token:
 
 ```bash
 PYTHONPATH="$GOVERNOR_HOME/src" "$GOVERNOR_HOME/.venv/bin/python" \
