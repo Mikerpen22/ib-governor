@@ -190,3 +190,56 @@ def test_hard_trip_alerts_every_time(tmp_path):
     d.handle([_trip(ActionType.ALERT_ONLY)], _snap(), "briefing")   # _trip is HARD
     d.handle([_trip(ActionType.ALERT_ONLY)], _snap(), "briefing")
     assert sum("[hard]" in a for a in d._alerts) == 2
+
+
+# --- staleness watchdog: quiet refresh in an idle market, scream only on real stall ---
+
+def test_stale_snapshot_refreshes_silently(tmp_path):
+    """A quiet market ages the snapshot — the watchdog refreshes WITHOUT a BRAKE BLIND
+    alert (idle != blind)."""
+    d = _daemon(tmp_path)
+    d.conn.ib.isConnected = lambda: True
+    d._last_built = d._now() - dt.timedelta(seconds=10_000)   # very stale (quiet market)
+    refreshed = []
+    d.evaluate_and_handle = lambda reason: refreshed.append(reason)
+    d._refresh_if_stale()
+    assert refreshed == ["staleness"]                          # it DID refresh
+    assert not any("BLIND" in a for a in d._alerts)            # but stayed quiet
+
+
+def test_stale_refresh_failure_screams_blind(tmp_path):
+    """If the forced refresh raises (socket up but data dead), THAT is the real
+    blind condition → alert."""
+    d = _daemon(tmp_path)
+    d.conn.ib.isConnected = lambda: True
+    d._last_built = d._now() - dt.timedelta(seconds=10_000)
+
+    def boom(reason):
+        raise RuntimeError("reqAccountUpdates timed out")
+
+    d.evaluate_and_handle = boom
+    d._refresh_if_stale()
+    assert any("BLIND" in a for a in d._alerts)
+
+
+def test_fresh_snapshot_is_noop(tmp_path):
+    """A fresh snapshot → no refresh, no alert."""
+    d = _daemon(tmp_path)
+    d.conn.ib.isConnected = lambda: True
+    d._last_built = d._now()                                   # fresh
+    refreshed = []
+    d.evaluate_and_handle = lambda reason: refreshed.append(reason)
+    d._refresh_if_stale()
+    assert refreshed == [] and d._alerts == []
+
+
+def test_disconnected_is_noop(tmp_path):
+    """When the socket is down the disconnect path owns the alert — the staleness
+    watchdog stays out of it."""
+    d = _daemon(tmp_path)
+    d.conn.ib.isConnected = lambda: False
+    d._last_built = d._now() - dt.timedelta(seconds=10_000)
+    refreshed = []
+    d.evaluate_and_handle = lambda reason: refreshed.append(reason)
+    d._refresh_if_stale()
+    assert refreshed == [] and d._alerts == []
