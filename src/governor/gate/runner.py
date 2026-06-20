@@ -399,6 +399,7 @@ def analyze_intent(
         lockout_active=lockout_active,
         sizing=sized,
         buying_power_ok=bp_ok,
+        setup=setup,
     )
     verdict = decide(facts)
 

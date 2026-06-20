@@ -133,3 +133,30 @@ class TestPreviewIncludesSetup:
         serialized = json.dumps(preview["setup"])
         parsed = json.loads(serialized)
         assert "available" in parsed
+
+
+# ---------------------------------------------------------------------------
+# Task 10 tests — setup wired into GateFacts / verdict
+# ---------------------------------------------------------------------------
+
+class TestSetupWiredIntoVerdict:
+    """Verify that setup now flows through GateFacts and changes the verdict."""
+
+    def test_downtrend_buy_is_caution_via_setup(self):
+        """A BUY into a clear downtrend stock escalates to CAUTION (Stage-2 reason)."""
+        ib = SetupFakeIB(bar_factory=_falling_bars)
+        _, preview = runner.analyze_intent(
+            ib, _stk_intent(qty=1.0), _snap(), RulesConfig(),
+            FakeLockoutStore(), now=_NOW,
+        )
+        assert preview["verdict"] == "CAUTION"
+        assert any("Stage 2" in r for r in preview["reasons"])
+
+    def test_uptrend_buy_stays_go_when_no_risk_flags(self):
+        """A BUY into a confirmed uptrend with no risk flags stays GO."""
+        ib = SetupFakeIB(bar_factory=_rising_bars)
+        _, preview = runner.analyze_intent(
+            ib, _stk_intent(qty=1.0), _snap(), RulesConfig(),
+            FakeLockoutStore(), now=_NOW,
+        )
+        assert preview["verdict"] == "GO"
