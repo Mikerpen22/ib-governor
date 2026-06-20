@@ -28,3 +28,6 @@ logs/
 
 # MkDocs build output
 site/
+
+# local daily-summary notes (fallback when launchd lacks iCloud access)
+daily-recaps/

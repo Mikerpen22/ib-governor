@@ -20,7 +20,7 @@ from ..actions.tokens import ConfirmTokenGate
 from ..comms.notify import notify as macos_notify
 from ..comms.telegram import TelegramClient
 from ..config import RulesConfig, load_config, load_env_file, telegram_from_env
-from ..model import ActionType, StateSnapshot, Trip
+from ..model import ActionType, Severity, StateSnapshot, Trip
 from ..rules.engine import evaluate
 from ..state.hwm import HwmStore
 from ..state.json_store import StateFileError
@@ -79,6 +79,7 @@ class BrakeDaemon:
         self.trade_log = WeeklyTradeLog("config/trade_log.json")
         self._last_built = None
         self._last_executed: dict[str, dt.datetime] = {}  # action.value -> last successful execute (cooldown)
+        self._active_soft_keys: set[str] = set()  # rule_ids of standing WARN/INFO trips already announced (edge-triggered alerts)
         self._tg_offset = 0
 
     @property
@@ -126,11 +127,15 @@ class BrakeDaemon:
                 if lk:
                     self.alert(f"⚠️ LOCKOUT VIOLATION: you traded futures while a {lk.kind} "
                                f"lockout is active (until {lk.until:%H:%M}, reason: {lk.reason}).")
-        if not trips:
-            log.info("[%s] OK nav=%.0f fut_pnl=%.0f trades=%d", reason, snap.nav,
-                     snap.futures_realized_pnl_today, snap.futures_trade_count_today)
-            return
+        # Edge-triggered soft alerts: a standing WARN/INFO (e.g. sector concentration)
+        # is announced ONCE when it appears and stays quiet while it persists — so the
+        # 3x/day briefings don't re-spam it. HARD trips always alert (they stage actions
+        # and matter every time). A soft trip that later clears gets a one-line "cleared".
+        current_rule_ids = {t.rule_id for t in trips}
+        new_soft_keys = {t.rule_id for t in trips if t.severity is not Severity.HARD}
         for t in trips:
+            if t.severity is not Severity.HARD and t.rule_id in self._active_soft_keys:
+                continue  # standing WARN/INFO already announced — don't repeat it
             self.alert(f"\U0001f6d1 {t.rule_id} [{t.severity.value}] — {t.message}")
             if t.action not in _ACTIONABLE:
                 continue
@@ -145,6 +150,15 @@ class BrakeDaemon:
             mode = "DRY-RUN" if self.config.live.dry_run else "ARMED"
             self.alert(f"Staged action ({mode}): {t.action.value}. Reply `CONFIRM {token}` "
                        f"within {int(self.config.live.confirm_ttl_seconds)}s to proceed.")
+
+        cleared = self._active_soft_keys - current_rule_ids
+        if cleared:
+            self.alert(f"✅ cleared: {', '.join(sorted(cleared))}")
+        self._active_soft_keys = new_soft_keys
+
+        if not trips:
+            log.info("[%s] OK nav=%.0f fut_pnl=%.0f trades=%d", reason, snap.nav,
+                     snap.futures_realized_pnl_today, snap.futures_trade_count_today)
 
     def on_confirm(self, reply_text: str) -> None:
         pending = self.tokens.verify(reply_text, self._now())

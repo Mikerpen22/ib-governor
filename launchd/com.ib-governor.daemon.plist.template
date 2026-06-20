@@ -38,6 +38,11 @@
         <key>SuccessfulExit</key>
         <false/>
     </dict>
+    <!-- If TWS isn't up yet (e.g. just after login), the daemon exits and launchd
+         respawns it. ThrottleInterval rate-limits that retry so a prolonged TWS
+         outage retries calmly every 30s instead of hot-looping. -->
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
     <key>StandardOutPath</key>
     <string>__GOVERNOR_HOME__/logs/governor.out.log</string>
     <key>StandardErrorPath</key>

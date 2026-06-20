@@ -287,7 +287,10 @@ def main() -> None:
 
     load_env_file()
     config = load_config(args.config)
-    conn = BrakeConnection(config.live)
+    # Use the daily collector's own client id (distinct from daemon=4 / gate=5) so the
+    # summary can read while the always-on daemon holds client_id 4.
+    daily_live = config.live.model_copy(update={"client_id": config.live.daily_client_id})
+    conn = BrakeConnection(daily_live)
     conn.connect()
     try:
         now = dt.datetime.now(tz=ET)

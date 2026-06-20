@@ -16,10 +16,12 @@ class TelegramClient:
         self._http = http
         self._base = f"https://api.telegram.org/bot{cfg.bot_token}"
 
-    async def send(self, text: str) -> None:
+    async def send(self, text: str, parse_mode: str | None = None) -> None:
+        payload: dict = {"chat_id": self._cfg.chat_id, "text": text}
+        if parse_mode:
+            payload["parse_mode"] = parse_mode  # "HTML" → <b>/<i>/<code> render
         try:
-            resp = await self._http.post(f"{self._base}/sendMessage",
-                                         json={"chat_id": self._cfg.chat_id, "text": text})
+            resp = await self._http.post(f"{self._base}/sendMessage", json=payload)
             resp.raise_for_status()
         except Exception as exc:  # comms failure must not crash the brake
             log.error("telegram send failed: %s", exc)

@@ -152,3 +152,41 @@ def test_execute_records_cooldown_only_on_success(tmp_path):
     d2.executor.trim_futures = boom
     d2._execute(ActionType.TRIM_FUTURES)
     assert "trim_futures" not in d2._last_executed            # failure -> no cooldown, retry allowed
+
+
+# --- edge-triggered soft alerts (no 3x/day repeat-spam of a standing WARN) ---
+
+def _warn(rule_id="equities.sector_concentration"):
+    return Trip(rule_id=rule_id, asset_class=AssetClass.EQUITY, severity=Severity.WARN,
+                message="Technology is 56% of NAV", action=ActionType.ALERT_ONLY)
+
+
+def test_standing_warn_alerts_once_then_suppressed(tmp_path):
+    """A persistent WARN (e.g. sector concentration) is announced once; subsequent
+    briefings stay quiet about it — no repeat spam across the day."""
+    d = _daemon(tmp_path)
+    d.handle([_warn()], _snap(), "briefing")
+    assert sum("sector_concentration" in a for a in d._alerts) == 1
+    d.handle([_warn()], _snap(), "briefing")   # same WARN, next briefing
+    d.handle([_warn()], _snap(), "briefing")   # and the next
+    assert sum("sector_concentration" in a for a in d._alerts) == 1   # still just once
+
+
+def test_cleared_warn_announced_then_rearmed(tmp_path):
+    """When a standing WARN resolves the daemon says 'cleared' once; if it later
+    re-trips, the edge is re-armed and it alerts again."""
+    d = _daemon(tmp_path)
+    d.handle([_warn()], _snap(), "briefing")          # appears
+    d.handle([], _snap(), "briefing")                 # resolves
+    assert any("cleared" in a.lower() for a in d._alerts)
+    d._alerts.clear()
+    d.handle([_warn()], _snap(), "briefing")          # returns
+    assert sum("sector_concentration" in a for a in d._alerts) == 1
+
+
+def test_hard_trip_alerts_every_time(tmp_path):
+    """HARD trips are NOT edge-suppressed — they alert on every evaluation."""
+    d = _daemon(tmp_path)
+    d.handle([_trip(ActionType.ALERT_ONLY)], _snap(), "briefing")   # _trip is HARD
+    d.handle([_trip(ActionType.ALERT_ONLY)], _snap(), "briefing")
+    assert sum("[hard]" in a for a in d._alerts) == 2
