@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import os
 import sys
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -208,6 +209,9 @@ def _build_parser() -> argparse.ArgumentParser:
     # --- submit subcommand ---
     sub_cmd = sub.add_parser("submit", help="Submit a previously staged order by token.")
     sub_cmd.add_argument("--token", required=True, help="Staging token from analyze")
+    sub_cmd.add_argument("--override", action="store_true",
+                         help="Place even a BLOCK-staged order (deliberate override; "
+                              "the Telegram confirm path never passes this)")
     sub_cmd.add_argument("--json", dest="json_output", action="store_true",
                          help="Print JSON output")
 
@@ -283,7 +287,10 @@ def _handle_analyze(args, config: RulesConfig) -> int:
             _staged_path(config),
             ttl_seconds=config.live.confirm_ttl_seconds,
         )
-        token = store.stage(intent.model_dump(), now)
+        # Persist the verdict alongside the intent so a later, separate `submit`
+        # process can refuse a BLOCK-staged order without an explicit override —
+        # the brake guarantee does not depend on the caller remembering it.
+        token = store.stage(intent.model_dump(), now, verdict=verdict.level.value)
 
     finally:
         conn.disconnect()
@@ -374,11 +381,25 @@ def _handle_submit(args, config: RulesConfig) -> int:
         _staged_path(config),
         ttl_seconds=config.live.confirm_ttl_seconds,
     )
-    intent_dict = store.consume(args.token, now)
-    if intent_dict is None:
+    record = store.consume(args.token, now)
+    if record is None:
         print(
             f"ERROR: token {args.token!r} is invalid, already used, or expired — "
             "re-run 'analyze' to get a fresh token.",
+            file=sys.stderr,
+        )
+        return 1
+
+    intent_dict = record["intent"]
+    staged_verdict = record.get("verdict")
+
+    # BLOCK hardening: a BLOCK-staged order is refused unless --override is given.
+    # This is the deterministic guarantee behind "the phone can't punch through
+    # the brake" — the daemon's confirm path never passes --override.
+    if staged_verdict == Verdict.BLOCK.value and not args.override:
+        print(
+            "ERROR: this order was BLOCKED by the gate — refusing to place it. "
+            "Re-run 'analyze' and clear the block, or pass --override to force.",
             file=sys.stderr,
         )
         return 1
@@ -439,6 +460,23 @@ def _handle_submit(args, config: RulesConfig) -> int:
 # ---------------------------------------------------------------------------
 
 
+def _maybe_agent_sandbox(config: RulesConfig) -> RulesConfig:
+    """Force dry-run when invoked inside the Telegram NL agent's sandbox.
+
+    The headless agent runs `gate analyze` (read-only) but `--allowed-tools` /
+    deny matching is unreliable in a launchd headless context, so we do NOT bet
+    the safety model on it: when GOVERNOR_AGENT_SANDBOX=1 is set (only the agent
+    subprocess sets it), force `live.dry_run=True` so even a `gate submit` the
+    agent somehow ran would place NOTHING. Real placement happens only via the
+    daemon's own CONFIRM -> submit, whose process does NOT set this flag.
+    """
+    if os.getenv("GOVERNOR_AGENT_SANDBOX") == "1":
+        return config.model_copy(
+            update={"live": config.live.model_copy(update={"dry_run": True})}
+        )
+    return config
+
+
 def main(argv: list[str] | None = None) -> None:
     """Parse args, dispatch to handler, and sys.exit with the returned code."""
     parser = _build_parser()
@@ -457,6 +495,8 @@ def main(argv: list[str] | None = None) -> None:
     except (FileNotFoundError, ValueError) as exc:
         print(f"ERROR: could not load config — {exc}", file=sys.stderr)
         sys.exit(1)
+
+    config = _maybe_agent_sandbox(config)  # force dry-run if the NL agent invoked us
 
     if args.command == "analyze":
         code = _handle_analyze(args, config)

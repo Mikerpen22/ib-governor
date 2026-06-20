@@ -229,7 +229,7 @@ class TestAnalyzeJson:
         store = StagedOrderStore(staged_path, ttl_seconds=300.0)
         result = store.consume(token, _NOW)
         assert result is not None
-        assert result["symbol"] == "ORCL"
+        assert result["intent"]["symbol"] == "ORCL"
 
     def test_go_verdict_exits_zero(self, monkeypatch, tmp_path):
         import governor.gate.cli as cli
@@ -360,6 +360,44 @@ class TestSubmitToken:
 
         cli.main(["submit", "--token", token])
 
+        assert len(submit_calls) == 1
+
+    def _stage_blocked(self, tmp_path) -> tuple[str, Path]:
+        """Pre-stage an ORCL intent recorded as a BLOCK verdict."""
+        staged_path = tmp_path / "staged_orders.json"
+        store = StagedOrderStore(staged_path, ttl_seconds=300,
+                                 token_factory=lambda: _FIXED_TOKEN)
+        token = store.stage(_orcl_intent().model_dump(), _NOW, verdict="BLOCK")
+        return token, staged_path
+
+    def test_submit_refuses_block_staged_without_override(self, monkeypatch, tmp_path, capsys):
+        """A BLOCK-staged order is refused (the phone path can't punch through the brake)."""
+        import governor.gate.cli as cli
+
+        token, staged_path = self._stage_blocked(tmp_path)
+        _, submit_calls, _ = _patch_cli_seams(
+            monkeypatch, tmp_path, verdict=_go_verdict(), preview=_go_preview(),
+        )
+        monkeypatch.setattr(cli, "_staged_path", lambda config: staged_path)
+
+        with pytest.raises(SystemExit) as exc:
+            cli.main(["submit", "--token", token])
+        assert exc.value.code == 1
+        assert submit_calls == []                       # never reached the write path
+        assert "BLOCK" in capsys.readouterr().err
+
+    def test_submit_allows_block_staged_with_override(self, monkeypatch, tmp_path, capsys):
+        """--override deliberately places a BLOCK-staged order."""
+        import governor.gate.cli as cli
+
+        token, staged_path = self._stage_blocked(tmp_path)
+        _, submit_calls, _ = _patch_cli_seams(
+            monkeypatch, tmp_path, verdict=_go_verdict(), preview=_go_preview(),
+            submit_return=True,
+        )
+        monkeypatch.setattr(cli, "_staged_path", lambda config: staged_path)
+
+        cli.main(["submit", "--token", token, "--override"])
         assert len(submit_calls) == 1
 
     def test_submit_reconstructs_correct_intent(self, monkeypatch, tmp_path, capsys):

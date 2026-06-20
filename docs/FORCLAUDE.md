@@ -211,3 +211,63 @@ The reason for the split: the fact panels are computed from real IBKR bars and a
 - **Fail-soft is the only option for a brake.** A setup that can't be assessed (TWS gave no bars, symbol has too little history) must *not* block the trade — a risk gate that refuses to let you close a position because it can't read a chart would be a hazard, not a help. The rule: missing data produces an `available: False` assessment and the rest of the gate runs as if setup didn't exist.
 - **The ATR percentile edge case is worth documenting.** In a dead-flat regime where every bar has the same range, the current bar's ATR ranks at the 100th percentile of itself — the percentile reads "elevated" even though there's no actual volatility expansion. It's fail-safe (CAUTION, never BLOCK), but it will fire in quiet markets and the operator should know why. See the HANDBOOK for the tuning knob.
 - **The MA200-rising criterion needs ~221 bars, not 200.** "MA200 rising" means the 200-bar MA itself has a positive slope over a 20-bar window — so you need 200 bars for the MA *plus* 20 more to compare the slope endpoint to its starting point. With the default `history_duration: "1 Y"` (~252 bars) you're fine; only names with exactly 200–220 bars of history cap at 6/7 on this criterion. It's production-moot but worth knowing if you ever see an unexpected `candidate` on a name that looks clean.
+
+## Phase 7 — Order from Telegram (built & merged)
+
+The daemon already polled Telegram (for `CONFIRM <token>`) and already owned the
+write chokepoint. Phase 7 lets you *start* an order from the chat — including in
+plain language — without opening a terminal.
+
+### The shape: a thin bridge, one reused brain
+
+The temptation was to embed a small LLM in the daemon to parse messages. We
+didn't. The project's whole architecture is "deterministic core, intelligence on
+top via skills" — so the natural-language understanding stays in the skill we
+already have. `daemon.handle_telegram_text` routes each inbound message:
+
+1. **circuit-breaker action confirm** — an in-memory `ConfirmTokenGate` token
+   (unchanged Plan-3 path),
+2. **order confirm** — `CONFIRM <token>` → `python -m governor.gate submit`
+   subprocess (the single guarded write path),
+3. **anything else** — a headless `claude -p` agent (`comms/agent_runner.py`)
+   with the `/pre-trade-*` skill, confined to the gate's `analyze` subcommand +
+   `Read`. The agent interprets, analyzes, stages, and replies a token.
+
+So the daemon stays dumb about *understanding* and *placing*: it relays to the
+agent and executes confirmed tokens through the gate CLI. No new Python
+dependency, no embedded model, no new secret — the agent reuses the existing
+Claude Code login, exactly like the daily-summary launchd job.
+
+### The BLOCK guarantee is in code, not in trust
+
+`gate analyze` stages even a BLOCK (so a deliberate CLI `--override` is possible).
+If the only thing stopping a BLOCKed phone order were the agent choosing not to
+print the token, that'd be trust, not a guarantee. So the staged record now
+carries the **verdict** (`StagedOrderStore`), and `gate submit` **refuses** a
+BLOCK-staged order unless `--override` is passed — which the daemon's confirm
+path never does. The phone cannot punch through the brake even if a token leaks.
+
+### Lessons
+
+- **`--allowed-tools` is additive, not a sandbox.** The first cut confined the
+  agent with `--allowed-tools "...analyze..." "Read"` and called it "structurally
+  unable to place an order." It wasn't: the spawned CLI also loads the operator's
+  global `~/.claude/settings.json`, which allows `Bash(python *)` in auto mode —
+  so the agent could have run `gate submit --override`. The real confinement is
+  **deny rules** (deny wins over any allow), **strict MCP isolation**
+  (`--strict-mcp-config --mcp-config '{"mcpServers":{}}'` so the ibkr-tws
+  `place_order` MCP can't load), and **`--permission-mode default`** (not the
+  global `auto`). A residual remains — the global `Bash(python *)` allow still
+  permits arbitrary python — closed only by tightening that global allow-list.
+  Lesson: a money-path sandbox must be verified against the *effective* merged
+  permission set, not the flags you passed.
+- **Reuse the strong brain before adding a weak one.** A Haiku-in-the-daemon would
+  have duplicated the pre-trade skill's intelligence and added an online
+  dependency + secret to the safety-critical process. Delegating to `claude -p`
+  kept one brain and zero new deps.
+- **Move the safety invariant to where it's deterministic.** "The phone can't
+  override BLOCK" became real only once `submit` enforced it from persisted state
+  — not from the agent's good behaviour.
+- **A subprocess seam keeps the async daemon testable.** `run_agent` and
+  `_gate_submit` are module-level seams; the routing tests inject fakes and never
+  spawn `claude` or a gate process.

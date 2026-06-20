@@ -25,6 +25,18 @@ class TelegramConfig(BaseModel):
         return bool(self.bot_token and self.chat_id)
 
 
+class TelegramAgentConfig(BaseModel):
+    """Natural-language Telegram order path. The daemon shells out to the `claude`
+    CLI (headless `-p`) with the pre-trade skill + read-only/analyze tools to turn
+    a chat message into a staged, confirm-gated order. Ships enabled but inert
+    unless the `claude` CLI is present + authenticated; placement still requires
+    the two locks (live.dry_run/readonly)."""
+
+    enabled: bool = True
+    claude_bin: str = "claude"             # CLI to invoke for the NL path
+    timeout_seconds: PositiveFloat = 120.0  # kill the agent subprocess after this
+
+
 def load_env_file(path: str | Path = ".env") -> None:
     """Populate os.environ from a .env file (KEY=VALUE lines), WITHOUT overriding
     already-set vars. No-op if the file is absent. Lets the daemon pick up secrets
@@ -159,6 +171,7 @@ class RulesConfig(BaseModel):
     portfolio: PortfolioRules = Field(default_factory=PortfolioRules)
     gate: GateRules = Field(default_factory=GateRules)
     setup: SetupRules = Field(default_factory=SetupRules)
+    telegram_agent: TelegramAgentConfig = Field(default_factory=TelegramAgentConfig)
 
 
 def load_config(path: str | Path) -> RulesConfig:
