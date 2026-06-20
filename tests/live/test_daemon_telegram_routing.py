@@ -44,9 +44,11 @@ def _daemon(tmp_path, config=None, token="TOK1"):
     d._alerts = []
     d.alert = d._alerts.append          # loud brake alerts
     d._replies = []                     # chat replies (telegram-only)
+    d._reply_tokens = []                # token passed per reply (None unless buttons attached)
 
-    async def _cap(text):
+    async def _cap(text, token=None):
         d._replies.append(text)
+        d._reply_tokens.append(token)
 
     d._reply = _cap
     return d
@@ -160,6 +162,63 @@ async def test_agent_path_sends_instant_ack_before_the_analysis(tmp_path, monkey
 
     assert len(d._replies) >= 2
     assert "analyz" in d._replies[0].lower()              # ack arrives first (kills the silent void)
+
+
+async def test_agent_reply_with_token_attaches_confirm_buttons(tmp_path, monkeypatch):
+    async def _fake_agent(text, cfg):
+        return "🟡 CAUTION — BUY 100 ORCL.\n\nReply CONFIRM A1B2C3D4E5F60789"
+
+    monkeypatch.setattr(daemon_mod, "run_agent", _fake_agent)
+    d = _daemon(tmp_path)
+    await d.handle_telegram_text("buy 100 ORCL")
+
+    # the analysis reply (last one) carries the token → buttons are attached
+    assert d._reply_tokens[-1] == "A1B2C3D4E5F60789"
+
+
+async def test_block_reply_attaches_no_buttons(tmp_path, monkeypatch):
+    async def _fake_agent(text, cfg):
+        return "🛑 BLOCKED — a lockout is active. No token provided."
+
+    monkeypatch.setattr(daemon_mod, "run_agent", _fake_agent)
+    d = _daemon(tmp_path)
+    await d.handle_telegram_text("buy 100 ORCL")
+
+    assert d._reply_tokens[-1] is None          # no token in a BLOCK reply → no buttons
+
+
+async def test_confirm_button_tap_routes_to_submit(tmp_path, monkeypatch):
+    submit_calls = []
+
+    async def _fake_gate_submit(token, timeout):
+        submit_calls.append(token)
+        return 0, '{"action":"BUY","symbol":"ORCL","quantity":100,"placed":true,"dry_run":false}', ""
+
+    monkeypatch.setattr(daemon_mod, "_gate_submit", _fake_gate_submit)
+    d = _daemon(tmp_path)
+    await d.handle_callback("confirm:A1B2C3D4E5F60789", callback_id="cb1")
+
+    assert submit_calls == ["A1B2C3D4E5F60789"]
+    assert any("PLACED" in r for r in d._replies)
+
+
+async def test_cancel_button_tap_discards_staged_order(tmp_path, monkeypatch):
+    consumed = []
+
+    class _FakeStore:
+        def __init__(self, *a, **k):
+            pass
+
+        def consume(self, token, now):
+            consumed.append(token)
+            return {"intent": {"symbol": "ORCL"}, "verdict": "GO"}
+
+    monkeypatch.setattr(daemon_mod, "StagedOrderStore", _FakeStore)
+    d = _daemon(tmp_path)
+    await d.handle_callback("cancel:A1B2C3D4E5F60789", callback_id="cb1")
+
+    assert consumed == ["A1B2C3D4E5F60789"]
+    assert any("ancel" in r for r in d._replies)   # "Cancelled"
 
 
 async def test_disabled_agent_ignores_natural_language(tmp_path, monkeypatch):

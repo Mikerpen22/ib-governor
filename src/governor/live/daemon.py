@@ -25,6 +25,7 @@ from ..comms.notify import notify as macos_notify
 from ..comms.proc import run_capture
 from ..comms.telegram import TelegramClient
 from ..config import RulesConfig, load_config, load_env_file, telegram_from_env
+from ..gate.staged import StagedOrderStore
 from ..model import ActionType, Severity, StateSnapshot, Trip
 from ..rules.engine import evaluate
 from ..state.hwm import HwmStore
@@ -153,6 +154,16 @@ def _friendly_submit_reply(rc: int, out: str, err: str) -> str:
     return "⚠️ Couldn't place that order. Nothing happened to your account."
 
 
+def _confirm_keyboard(token: str) -> dict:
+    """Inline keyboard so the user taps ✅/✖️ instead of typing a 16-char token.
+    The token still rides in callback_data, so the safety model is unchanged —
+    placement still flows through gate submit; taps are just a nicer transport."""
+    return {"inline_keyboard": [[
+        {"text": "✅ Place order", "callback_data": f"confirm:{token}"},
+        {"text": "✖️ Cancel", "callback_data": f"cancel:{token}"},
+    ]]}
+
+
 class BrakeDaemon:
     def __init__(self, config: RulesConfig) -> None:
         self.config = config
@@ -266,11 +277,13 @@ class BrakeDaemon:
         self._execute(trip.action)
         return True
 
-    async def _reply(self, text: str) -> None:
+    async def _reply(self, text: str, token: str | None = None) -> None:
         """Send a CHAT reply — telegram only. Distinct from alert(), which is for
-        loud brake notifications (telegram + macOS + WARNING log)."""
+        loud brake notifications (telegram + macOS + WARNING log). When *token* is
+        given, attach ✅/✖️ inline buttons so the user can tap to confirm/cancel."""
+        markup = _confirm_keyboard(token) if token else None
         if self._telegram_cfg.enabled:
-            await self.telegram.send(text)
+            await self.telegram.send(text, reply_markup=markup)
         else:
             log.info("telegram reply (telegram not configured): %s", text)
 
@@ -300,7 +313,38 @@ class BrakeDaemon:
             log.info("telegram_agent disabled — ignoring non-confirm message")
             return
         await self._reply("🔍 Got it — analyzing your order now (about a minute)…")
-        await self._reply(await run_agent(text, self.config.telegram_agent))
+        reply = await run_agent(text, self.config.telegram_agent)
+        # If the agent proposed an order (its reply carries a CONFIRM token),
+        # attach ✅/✖️ buttons; a BLOCK / clarifying reply has no token -> no buttons.
+        await self._reply(reply, token=_confirm_token(reply))
+
+    async def handle_callback(self, data: str, callback_id: str | None = None) -> None:
+        """Handle an inline-button tap. `data` is 'confirm:<token>' / 'cancel:<token>'.
+        Same safety path as a typed CONFIRM — the token gates placement."""
+        if callback_id is not None and self._telegram_cfg.enabled:
+            await self.telegram.answer_callback(callback_id)  # clear the tap spinner
+        action, _, raw = data.partition(":")
+        token = raw.strip().upper()
+        if not _TOKEN_RE.match(token):
+            return
+        if action == "confirm":
+            await self._reply(await self._submit_staged_order(token))
+        elif action == "cancel":
+            await self._reply(await self._cancel_staged_order(token))
+
+    async def _cancel_staged_order(self, token: str) -> str:
+        """Consume + discard a staged order so it can't be confirmed later."""
+        store = StagedOrderStore("config/staged_orders.json",
+                                 ttl_seconds=self.config.live.confirm_ttl_seconds)
+        try:
+            record = store.consume(token, self._now())
+        except Exception as exc:  # noqa: BLE001 — never crash the loop on a bad cancel
+            log.error("cancel failed: %s", exc)
+            return "⚠️ Couldn't cancel that — try again."
+        if record is None:
+            return "Nothing to cancel — that order was already placed, cancelled, or expired."
+        sym = record.get("intent", {}).get("symbol", "your")
+        return f"✖️ Cancelled — the {sym} order was discarded. Nothing was placed."
 
     async def _submit_staged_order(self, token: str) -> str:
         """Place a previously staged order via the gate submit chokepoint, and
@@ -386,7 +430,7 @@ class BrakeDaemon:
         # order that survived on disk — "nothing auto-fires" must hold across
         # restarts too. Tell the user so a dropped message isn't a silent void.
         try:
-            backlog, self._tg_offset = await self.telegram.poll(self._tg_offset)
+            backlog, _cbs, self._tg_offset = await self.telegram.poll(self._tg_offset)
             if backlog:
                 log.warning("telegram: skipped %d backlog message(s) on startup", len(backlog))
                 await self._reply(
@@ -397,7 +441,9 @@ class BrakeDaemon:
             log.error("telegram backlog drain failed: %s", exc)
         while True:
             try:
-                texts, self._tg_offset = await self.telegram.poll(self._tg_offset)
+                texts, callbacks, self._tg_offset = await self.telegram.poll(self._tg_offset)
+                for cb in callbacks:                            # button taps are cheap → inline
+                    await self._safe_handle_callback(cb)
                 for text in texts:
                     if _is_fast_message(text):
                         await self._safe_handle(text)              # cheap: inline, ahead of agent runs
@@ -415,6 +461,12 @@ class BrakeDaemon:
         except Exception as exc:  # noqa: BLE001
             log.error("handling telegram message failed: %s", exc)
             await self._reply("⚠️ Something went wrong handling that. Your account is untouched.")
+
+    async def _safe_handle_callback(self, cb: dict) -> None:
+        try:
+            await self.handle_callback(cb.get("data", ""), cb.get("id"))
+        except Exception as exc:  # noqa: BLE001
+            log.error("handling telegram callback failed: %s", exc)
 
     def _refresh_if_stale(self) -> None:
         """Staleness-watchdog tick. A quiet market (no fills, between briefings) ages the
