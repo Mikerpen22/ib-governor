@@ -29,7 +29,12 @@ def house_money_lockout(snapshot: StateSnapshot, cfg: FuturesRules) -> Trip | No
 
 
 def daily_loss_stop(snapshot: StateSnapshot, cfg: FuturesRules) -> Trip | None:
-    hit_loss = snapshot.futures_realized_pnl_today < -cfg.daily_loss_usd
+    # [H2] Total day P&L = realized + open (mark-to-market) futures P&L. An open losing
+    # position should be able to trip the stop before it is realized (user decision).
+    total_pnl = (
+        snapshot.futures_realized_pnl_today + snapshot.futures_unrealized_pnl_today
+    )
+    hit_loss = total_pnl < -cfg.daily_loss_usd
     hit_streak = snapshot.futures_losing_trades_today >= cfg.max_losing_trades
     if hit_loss or hit_streak:
         if hit_loss and hit_streak:
@@ -43,14 +48,18 @@ def daily_loss_stop(snapshot: StateSnapshot, cfg: FuturesRules) -> Trip | None:
             asset_class=AssetClass.FUTURE,
             severity=Severity.HARD,
             message=(
-                f"Futures {reason} hit: P&L "
-                f"${snapshot.futures_realized_pnl_today:,.0f}, "
+                f"Futures {reason} hit: total P&L "
+                f"${total_pnl:,.0f} "
+                f"(realized ${snapshot.futures_realized_pnl_today:,.0f} + open "
+                f"${snapshot.futures_unrealized_pnl_today:,.0f} mark-to-market), "
                 f"{snapshot.futures_losing_trades_today} losing trades. "
                 f"Platform OFF for the day."
             ),
             action=ActionType.PLATFORM_OFF_TODAY,
             context={
+                "total_pnl": f"{total_pnl:.2f}",
                 "realized_pnl": f"{snapshot.futures_realized_pnl_today:.2f}",
+                "unrealized_pnl": f"{snapshot.futures_unrealized_pnl_today:.2f}",
                 "losing_trades": str(snapshot.futures_losing_trades_today),
             },
         )
@@ -96,7 +105,8 @@ def overnight_notional(snapshot: StateSnapshot, cfg: FuturesRules) -> Trip | Non
             severity=Severity.HARD,
             message=(
                 f"{snapshot.futures_contracts_overnight:g} contracts heading overnight "
-                f"(> {cfg.max_overnight_contracts:g} cap ≈ ⅓ NAV) — "
+                f"(> {cfg.max_overnight_contracts:g} cap ≈ ⅓ NAV at live MNQ notional "
+                f"~$61k/contract) — "
                 f"≈{pct:.0%} of NAV in notional. Trim to "
                 f"≤{cfg.max_overnight_contracts:g}?"
             ),

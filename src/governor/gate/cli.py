@@ -36,7 +36,14 @@ from governor.actions.executor import ActionExecutor
 from governor.actions.lockout import LockoutStore
 from governor.config import RulesConfig, load_config
 from governor.gate.analysis import Verdict
-from governor.gate.intent import Action, OrderIntent, OrderType, SecType
+from governor.gate.intent import (
+    Action,
+    AdaptivePriority,
+    OrderIntent,
+    OrderType,
+    SecType,
+)
+from governor.gate.order_catalog import TIF_CHOICES, render_table
 from governor.gate.runner import analyze_intent, submit_intent
 from governor.gate.staged import StagedOrderStore
 from governor.live.builder import build_live_snapshot
@@ -129,6 +136,12 @@ _ORDER_TYPE_MAP: dict[str, OrderType] = {
     "stop-limit": OrderType.STOP_LIMIT,
 }
 
+_PRIORITY_MAP: dict[str, AdaptivePriority] = {
+    "urgent": AdaptivePriority.URGENT,
+    "normal": AdaptivePriority.NORMAL,
+    "patient": AdaptivePriority.PATIENT,
+}
+
 
 # ---------------------------------------------------------------------------
 # Argument parser
@@ -169,10 +182,28 @@ def _build_parser() -> argparse.ArgumentParser:
                      help="Protective stop-loss price (attaches a bracket child order)")
     ana.add_argument("--take-profit", dest="take_profit", type=float, default=None,
                      help="Protective take-profit price (attaches a bracket child order)")
+    ana.add_argument("--adaptive", action="store_true",
+                     help="Run a market/limit order through IBKR's Adaptive algo "
+                          "(invalid on stop / stop-limit). See 'order-types'.")
+    ana.add_argument("--priority", dest="priority",
+                     default="normal", choices=["urgent", "normal", "patient"],
+                     help="Adaptive priority when --adaptive is set (default: normal)")
+    ana.add_argument("--tif", dest="tif",
+                     default="DAY", type=str.upper, choices=list(TIF_CHOICES),
+                     help="Time-in-force for the entry order (default: DAY)")
+    ana.add_argument("--protective-tif", dest="protective_tif",
+                     default="GTC", type=str.upper, choices=list(TIF_CHOICES),
+                     help="Time-in-force for bracket protective legs (default: GTC)")
     ana.add_argument("--json", dest="json_output", action="store_true",
                      help="Print JSON output instead of human-readable")
     ana.add_argument("--override", action="store_true",
                      help="Exit 0 even on BLOCK verdict (allows override submit)")
+
+    # --- order-types subcommand ---
+    sub.add_parser(
+        "order-types",
+        help="List the selectable order types, their flags, and when to use each.",
+    )
 
     # --- submit subcommand ---
     sub_cmd = sub.add_parser("submit", help="Submit a previously staged order by token.")
@@ -206,9 +237,18 @@ def _handle_analyze(args, config: RulesConfig) -> int:
             stop_price=args.stop_price,
             stop_loss=getattr(args, "stop_loss", None),
             take_profit=getattr(args, "take_profit", None),
+            adaptive=getattr(args, "adaptive", False),
+            adaptive_priority=_PRIORITY_MAP[getattr(args, "priority", "normal")],
+            tif=getattr(args, "tif", "DAY"),
+            protective_tif=getattr(args, "protective_tif", "GTC"),
         )
     except (ValidationError, ValueError) as exc:
-        print(f"ERROR: invalid order — {exc}", file=sys.stderr)
+        print(
+            f"ERROR: invalid order — {exc}\n"
+            "Run 'python -m governor.gate order-types' to see the valid order "
+            "types and how to combine them (e.g. --adaptive is MARKET/LIMIT only).",
+            file=sys.stderr,
+        )
         return 1
 
     # 2. Config already loaded by caller.
@@ -250,7 +290,15 @@ def _handle_analyze(args, config: RulesConfig) -> int:
 
     # 8. Output
     if args.json_output:
-        print(json.dumps({**preview, "token": token}))
+        # Echo the order-type modifiers the trader selected so the JSON reflects
+        # the full intent (preview from analyze_intent may predate these fields).
+        intent_echo = {
+            "adaptive": intent.adaptive,
+            "adaptive_priority": intent.adaptive_priority.value,
+            "tif": intent.tif,
+            "protective_tif": intent.protective_tif,
+        }
+        print(json.dumps({**intent_echo, **preview, "token": token}))
     else:
         _print_analyze_summary(intent, verdict, preview, token)
 
@@ -298,6 +346,19 @@ def _print_analyze_summary(
     print(f"  Token  : {token}")
     print(f"  Submit : python -m governor.gate submit --token {token}")
     print()
+
+
+# ---------------------------------------------------------------------------
+# order-types handler
+# ---------------------------------------------------------------------------
+
+
+def _handle_order_types() -> int:
+    """Print the selectable order-type catalog. Pure reference: no config, no
+    TWS connection — just the catalog table so a trader can pick a `--type`
+    (and the --adaptive / bracket / TIF modifiers) before running 'analyze'."""
+    print(render_table())
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -382,6 +443,14 @@ def main(argv: list[str] | None = None) -> None:
     """Parse args, dispatch to handler, and sys.exit with the returned code."""
     parser = _build_parser()
     args = parser.parse_args(argv)
+
+    # order-types is pure reference — no config, no connection. Dispatch it before
+    # the config load so the catalog is available even without a valid rules.yaml.
+    if args.command == "order-types":
+        code = _handle_order_types()
+        if code != 0:
+            sys.exit(code)
+        return
 
     try:
         config = load_config(_CONFIG_PATH)

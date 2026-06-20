@@ -18,13 +18,21 @@ The result is a plain dict of JSON-serializable primitives:
                        unrealized_pnl} from ib.portfolio()
   trips             — list of dicts {rule_id, severity, message} from the rule
                        engine, built on the current snapshot
+  indices           — {SYM: {label, last, change_pct} | None} broad-market move
+                       for SPY/QQQ/DIA/IWM (best-effort; None per missing feed)
+  vix               — {level, change_pct, elevated, signal} | None — the VIX
+                       level; `elevated` is level > VIX_ELEVATED_THRESHOLD (20),
+                       a contrarian-long signal. None if unavailable.
 """
 from __future__ import annotations
 
 import argparse
 import datetime as dt
 import json
+import logging
 from zoneinfo import ZoneInfo
+
+from ib_async import Index, Stock
 
 from ..config import RulesConfig, load_config
 from ..rules.engine import evaluate
@@ -38,12 +46,108 @@ from .snapshot import (
 
 ET = ZoneInfo("America/New_York")
 
+log = logging.getLogger("governor.live.daily")
+
 # IBKR leaves realizedPNL at this sentinel when it has not been computed yet.
 _PNL_SENTINEL_THRESHOLD = 1e12
+
+# The user's "elevated fear" line in the VIX. Historically, VIX > 20 marks a
+# regime where contrarian longs have paid off (fear is overpriced). It's the
+# operator's threshold — tunable; this is a signal, not financial advice.
+VIX_ELEVATED_THRESHOLD = 20.0
+
+# The broad-market index proxies (liquid ETFs — historical bars are broadly
+# available without a live market-data subscription). Ordered SPY · QQQ · DIA · IWM.
+_INDEX_PROXIES: tuple[tuple[str, str], ...] = (
+    ("SPY", "S&P 500"),
+    ("QQQ", "Nasdaq 100"),
+    ("DIA", "Dow"),
+    ("IWM", "Russell 2000"),
+)
 
 
 def _is_sentinel_pnl(pnl: float) -> bool:
     return abs(pnl) >= _PNL_SENTINEL_THRESHOLD
+
+
+def _last_two_closes(bars) -> tuple[float, float] | None:
+    """Return (prev_close, latest_close) from a daily-bar series, or None.
+
+    Needs at least two bars to compute a day-over-day change. A missing/empty/
+    single-bar series → None (the caller renders that feed as unavailable).
+    """
+    if not bars or len(bars) < 2:
+        return None
+    prev_close = _to_float(getattr(bars[-2], "close", None))
+    latest_close = _to_float(getattr(bars[-1], "close", None))
+    if prev_close <= 0:
+        return None
+    return prev_close, latest_close
+
+
+def _fetch_daily_bars(ib, contract):
+    """Fetch ~2 daily TRADES bars for a contract. FAIL-SOFT: returns [] on any error.
+
+    Uses reqHistoricalData (EOD bars) rather than reqTickers because this account
+    may lack live index/VIX market-data, while historical bars are broadly entitled.
+    """
+    try:
+        return ib.reqHistoricalData(
+            contract,
+            endDateTime="",
+            durationStr="2 D",
+            barSizeSetting="1 day",
+            whatToShow="TRADES",
+            useRTH=True,
+        ) or []
+    except Exception:  # noqa: BLE001 — backdrop is best-effort; never sink the collector
+        log.warning("market backdrop: historical bars unavailable for %r", contract, exc_info=True)
+        return []
+
+
+def collect_market_backdrop(ib) -> dict:
+    """Best-effort broad-market backdrop: index moves + the VIX level.
+
+    Returns ``{"indices": {SYM: {label, last, change_pct} | None}, "vix": {...} | None}``.
+    Every fetch is wrapped so one missing/erroring feed cannot break the rest, and
+    a wholly market-data-less ``ib`` yields all-None (never raises). Read-only.
+    """
+    indices: dict[str, dict | None] = {}
+    for sym, label in _INDEX_PROXIES:
+        entry: dict | None = None
+        try:
+            bars = _fetch_daily_bars(ib, Stock(sym, "SMART", "USD"))
+            closes = _last_two_closes(bars)
+            if closes is not None:
+                prev_close, latest_close = closes
+                entry = {
+                    "label": label,
+                    "last": latest_close,
+                    "change_pct": (latest_close - prev_close) / prev_close * 100,
+                }
+        except Exception:  # noqa: BLE001 — one symbol must not sink the backdrop
+            log.warning("market backdrop: index %s failed", sym, exc_info=True)
+            entry = None
+        indices[sym] = entry
+
+    vix: dict | None = None
+    try:
+        bars = _fetch_daily_bars(ib, Index("VIX", "CBOE"))
+        closes = _last_two_closes(bars)
+        if closes is not None:
+            prev_close, latest_close = closes
+            elevated = latest_close > VIX_ELEVATED_THRESHOLD
+            vix = {
+                "level": latest_close,
+                "change_pct": (latest_close - prev_close) / prev_close * 100,
+                "elevated": elevated,
+                "signal": "elevated fear — contrarian long" if elevated else "calm",
+            }
+    except Exception:  # noqa: BLE001 — VIX (entitlement) is optional; fail soft
+        log.warning("market backdrop: VIX unavailable", exc_info=True)
+        vix = None
+
+    return {"indices": indices, "vix": vix}
 
 
 def _fill_date_et(fill) -> dt.date:
@@ -142,6 +246,9 @@ def collect_day_data(ib, config: RulesConfig, now: dt.datetime) -> dict:
         for t in raw_trips
     ]
 
+    # --- Broad-market backdrop (best-effort; never breaks the collector) ---
+    backdrop = collect_market_backdrop(ib)
+
     return {
         "date": today.isoformat(),
         "nav": nav,
@@ -151,6 +258,8 @@ def collect_day_data(ib, config: RulesConfig, now: dt.datetime) -> dict:
         "fills": fills,
         "positions": positions,
         "trips": trips,
+        "indices": backdrop["indices"],
+        "vix": backdrop["vix"],
     }
 
 

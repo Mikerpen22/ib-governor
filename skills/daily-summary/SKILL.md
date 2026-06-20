@@ -10,7 +10,7 @@ Produce an end-of-day recap of the day's trading, analyzed through three lenses,
 > **Setup:** set `GOVERNOR_HOME` to your ib-governor checkout (e.g. `export GOVERNOR_HOME=~/ib-governor`). Vault logging is optional — set `VAULT_DIR` to your notes folder to enable it; skip it to just send the Telegram recap.
 
 The three lenses (use all three, in balance):
-- **Stan Druckenmiller — macro & risk.** Liquidity/rate/regime backdrop; does the book fit it? Are losers cut and winners pressed? Is size matched to conviction? Leverage discipline; the Fed/discount-rate as the master variable. *Not whether you're right, but how much you make when right vs. lose when wrong.*
+- **Stan Druckenmiller — macro & risk / regime.** Liquidity/rate/regime backdrop; does the book fit it? Are losers cut and winners pressed? Is size matched to conviction? Leverage discipline; the Fed/discount-rate as the master variable. Read the **📈 Market Backdrop** (index breadth + the VIX) as the regime/liquidity tape — **an elevated VIX (>20) is a contrarian-long signal** in this lens (fear is overpriced; consider leaning long / pressing high-conviction names). *Not whether you're right, but how much you make when right vs. lose when wrong.*
 - **Brad Gerstner — secular growth / AI.** Are the trades consistent with the durable AI/secular thesis? Quality of the names? Riding the right wave, or chasing? Efficiency + conviction in compounders.
 - **Gavin Baker — concentrated conviction / semis-tech.** Is exposure conviction-weighted into the 2–3 things that actually matter? Semis/compute cycle read. Is concentration deliberate, or drift?
 
@@ -18,7 +18,14 @@ The three lenses (use all three, in balance):
 ```bash
 PYTHONPATH="$GOVERNOR_HOME/src" "$GOVERNOR_HOME/.venv/bin/python" -m governor.live.daily --json
 ```
-Parse: `date`, `nav`, `realized_pnl_today`, `margin_cushion`, `gross_leverage`, `fills[]` (today's executions), `positions[]` (current book), `trips[]` (breaker lines crossed). If it errors (TWS down), say so and STOP — don't fabricate numbers.
+Parse: `date`, `nav`, `realized_pnl_today`, `margin_cushion`, `gross_leverage`, `fills[]` (today's executions), `positions[]` (current book), `trips[]` (breaker lines crossed), `indices` (broad-market move — `{SPY,QQQ,DIA,IWM}` → `{label, last, change_pct}` or `null`), `vix` (`{level, change_pct, elevated, signal}` or `null`). If it errors (TWS down), say so and STOP — don't fabricate numbers. The `indices`/`vix` feed is **best-effort**: any entry may be `null` (no market-data entitlement) — just omit what's missing, never fabricate a level.
+
+### 📈 Market Backdrop (regime tape)
+Before the lenses, read the day's broad-market context from `indices` + `vix`:
+- **Index breadth:** report today's move for **S&P 500 (SPY) · Nasdaq 100 (QQQ) · Dow (DIA) · Russell 2000 (IWM)** as `change_pct` (e.g. "SPX +0.4% · NDX −0.2% · Dow +0.5% · RUT −0.5%"). Note breadth divergence (e.g. mega-cap up while small-caps down = narrow tape). Skip any index that came back `null`.
+- **The VIX:** report `vix.level` (and `change_pct` vs. prior day). **When `vix.elevated` is true (VIX > 20)**, surface a clear note: *elevated fear is historically a **contrarian long** signal — consider leaning long / adding to high-conviction names.* Frame it explicitly as a **signal, not financial advice**. When calm (≤20), say so briefly.
+- This is a **regime/liquidity read — wire it into the Druckenmiller lens** (does the book fit the tape? is an elevated-VIX contrarian-long tilt consistent with current leverage and conviction?).
+- Produce a one-line **Backdrop:** string for reuse in the vault note and Telegram recap, e.g. `Backdrop: SPX +0.4% · NDX −0.2% · VIX 23 (elevated → lean long)` — or `VIX 14 (calm)` when not elevated. If the whole feed is `null`, write `Backdrop: market data unavailable` and move on.
 
 ## Step 2 — (Optional) Read your vault for voice + continuity
 Only if `VAULT_DIR` is set:
@@ -40,6 +47,7 @@ Be honest and specific. Praise genuine discipline; call out churn, averaging-dow
 If `VAULT_DIR` is set, write to `$VAULT_DIR/<your trading-notes folder>/Market Close <YYYY-MM-DD>.md`, following your vault's conventions. Suggested structure:
 - **Frontmatter:** `title`, `date`, `type: market-close`, `tags`, `created`, `updated`.
 - `# 🌙 Market Close — <date>` + a **tl;dr blockquote** (2–3 sentences: the day + the three-lens verdict).
+- `## 📈 Market Backdrop` — the index moves (SPX/NDX/Dow/RUT % today) + the VIX level; when `vix.elevated`, the one-line contrarian-long note (signal, not advice). Lead with the **Backdrop:** one-liner from Step 1a. Omit if the feed was entirely unavailable.
 - `## 📊 Today's Trades` — table: symbol · side · qty · price · realized P&L. (If none: "no trades — book stance only".)
 - `## 💰 P&L & Book` — realized today, NAV, leverage, margin cushion, top positions + unrealized.
 - `## 🛑 Brake Lines` — any `trips` (e.g. notional, sector concentration), with the number.
@@ -52,9 +60,11 @@ Keep it tight (Telegram-sized — the full analysis lives in the vault note, if 
 ```bash
 PYTHONPATH="$GOVERNOR_HOME/src" "$GOVERNOR_HOME/.venv/bin/python" -m governor.comms.send "🌙 Market Close <date>
 Realized <…> · NAV <…> · <N> trades · lev <…>x
+Backdrop: SPX <±%> · NDX <±%> · VIX <level> (<elevated → lean long | calm>)
 3-lens: <one-line verdict>
 Lines: <trips or 'none'>"
 ```
+(Drop the Backdrop line if the `indices`/`vix` feed was unavailable — never fabricate a level. When `vix.elevated`, the `(elevated → lean long)` tag flags the contrarian-long signal.)
 
 ## Notes
 - Run manually at the close, or schedule it at EOD (a launchd-scheduled `claude -p /daily-summary`).

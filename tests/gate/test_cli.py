@@ -16,7 +16,13 @@ import pytest
 
 from governor.config import RulesConfig
 from governor.gate.analysis import GateVerdict, Verdict
-from governor.gate.intent import Action, OrderIntent, OrderType, SecType
+from governor.gate.intent import (
+    Action,
+    AdaptivePriority,
+    OrderIntent,
+    OrderType,
+    SecType,
+)
 from governor.gate.staged import StagedOrderStore
 from governor.model import StateSnapshot
 
@@ -658,3 +664,201 @@ class TestArgDefaults:
         cli.main(["analyze", "buy", "10", "AAPL"])
         intent = captured["intent"]
         assert intent.order_type is OrderType.MARKET
+
+
+# ---------------------------------------------------------------------------
+# Test: order-types subcommand — discoverable catalog, no TWS connection
+# ---------------------------------------------------------------------------
+
+
+class TestOrderTypesSubcommand:
+    def test_order_types_prints_the_catalog_table(self, monkeypatch, tmp_path, capsys):
+        import governor.gate.cli as cli
+
+        # Default config load (no patching needed; order-types touches no I/O seams)
+        monkeypatch.setattr(cli, "load_config", lambda _path: RulesConfig())
+
+        cli.main(["order-types"])
+
+        out = capsys.readouterr().out
+        # Every selectable type name + the cross-cutting notes appear
+        for name in ("Market", "Limit", "Stop", "Adaptive Market", "Adaptive Limit"):
+            assert name in out
+        lower = out.lower()
+        assert "adaptive" in lower
+        assert "bracket" in lower
+        for p in AdaptivePriority:
+            assert p.value in out
+
+    def test_order_types_matches_render_table(self, monkeypatch, tmp_path, capsys):
+        import governor.gate.cli as cli
+        from governor.gate.order_catalog import render_table
+
+        monkeypatch.setattr(cli, "load_config", lambda _path: RulesConfig())
+
+        cli.main(["order-types"])
+        out = capsys.readouterr().out
+        assert render_table().strip() in out
+
+    def test_order_types_does_not_connect(self, monkeypatch, tmp_path):
+        """order-types is pure reference; it must never open a TWS connection."""
+        import governor.gate.cli as cli
+
+        connect_calls = []
+        monkeypatch.setattr(cli, "load_config", lambda _path: RulesConfig())
+        monkeypatch.setattr(
+            cli, "_make_connection",
+            lambda config: connect_calls.append(1),
+        )
+
+        cli.main(["order-types"])
+        assert connect_calls == []
+
+    def test_order_types_exits_zero(self, monkeypatch, tmp_path):
+        import governor.gate.cli as cli
+
+        monkeypatch.setattr(cli, "load_config", lambda _path: RulesConfig())
+        try:
+            cli.main(["order-types"])
+        except SystemExit as e:
+            assert e.code == 0 or e.code is None
+
+
+# ---------------------------------------------------------------------------
+# Test: analyze --adaptive / --priority / --tif / --protective-tif flags
+# ---------------------------------------------------------------------------
+
+
+class TestAnalyzeAdaptiveFlags:
+    def test_adaptive_market_threads_into_intent(self, monkeypatch, tmp_path, capsys):
+        import governor.gate.cli as cli
+
+        captured, _, _ = _patch_cli_seams(
+            monkeypatch, tmp_path,
+            verdict=_go_verdict(), preview=_go_preview(),
+        )
+
+        cli.main(["analyze", "buy", "50", "ORCL",
+                  "--type", "market", "--adaptive", "--json"])
+
+        intent = captured["intent"]
+        assert intent.adaptive is True
+        assert intent.order_type is OrderType.MARKET
+        # default priority
+        assert intent.adaptive_priority is AdaptivePriority.NORMAL
+
+    def test_priority_maps_to_enum(self, monkeypatch, tmp_path, capsys):
+        import governor.gate.cli as cli
+
+        captured, _, _ = _patch_cli_seams(
+            monkeypatch, tmp_path,
+            verdict=_go_verdict(), preview=_go_preview(),
+        )
+
+        cli.main(["analyze", "buy", "50", "ORCL",
+                  "--type", "limit", "--limit", "145",
+                  "--adaptive", "--priority", "urgent", "--json"])
+
+        intent = captured["intent"]
+        assert intent.adaptive is True
+        assert intent.adaptive_priority is AdaptivePriority.URGENT
+
+    def test_tif_and_protective_tif_thread_into_intent(self, monkeypatch, tmp_path, capsys):
+        import governor.gate.cli as cli
+
+        captured, _, _ = _patch_cli_seams(
+            monkeypatch, tmp_path,
+            verdict=_go_verdict(), preview=_go_preview(),
+        )
+
+        cli.main(["analyze", "buy", "50", "ORCL",
+                  "--type", "limit", "--limit", "145",
+                  "--tif", "GTC", "--protective-tif", "DAY", "--json"])
+
+        intent = captured["intent"]
+        assert intent.tif == "GTC"
+        assert intent.protective_tif == "DAY"
+
+    def test_defaults_are_day_and_gtc_and_not_adaptive(self, monkeypatch, tmp_path, capsys):
+        import governor.gate.cli as cli
+
+        captured, _, _ = _patch_cli_seams(
+            monkeypatch, tmp_path,
+            verdict=_go_verdict(), preview=_go_preview(),
+        )
+
+        cli.main(["analyze", "buy", "50", "ORCL", "--type", "market", "--json"])
+        intent = captured["intent"]
+        assert intent.adaptive is False
+        assert intent.tif == "DAY"
+        assert intent.protective_tif == "GTC"
+        assert intent.adaptive_priority is AdaptivePriority.NORMAL
+
+    def test_json_output_echoes_new_fields(self, monkeypatch, tmp_path, capsys):
+        import governor.gate.cli as cli
+
+        _patch_cli_seams(
+            monkeypatch, tmp_path,
+            verdict=_go_verdict(), preview=_go_preview(),
+        )
+
+        cli.main(["analyze", "buy", "50", "ORCL",
+                  "--type", "market", "--adaptive",
+                  "--priority", "patient", "--tif", "GTC", "--json"])
+
+        data = json.loads(capsys.readouterr().out)
+        assert data["adaptive"] is True
+        assert data["adaptive_priority"] == AdaptivePriority.PATIENT.value
+        assert data["tif"] == "GTC"
+
+
+class TestAnalyzeAdaptiveValidation:
+    def test_adaptive_on_stop_exits_nonzero(self, monkeypatch, tmp_path):
+        """OrderIntent rejects adaptive on a stop; the CLI must catch it cleanly."""
+        import governor.gate.cli as cli
+
+        _patch_cli_seams(monkeypatch, tmp_path,
+                         verdict=_go_verdict(), preview=_go_preview())
+
+        with pytest.raises(SystemExit) as exc_info:
+            cli.main(["analyze", "buy", "50", "ORCL",
+                      "--type", "stop", "--stop", "140", "--adaptive"])
+        assert exc_info.value.code != 0
+
+    def test_adaptive_on_stop_error_mentions_order_types(self, monkeypatch, tmp_path, capsys):
+        import governor.gate.cli as cli
+
+        _patch_cli_seams(monkeypatch, tmp_path,
+                         verdict=_go_verdict(), preview=_go_preview())
+
+        try:
+            cli.main(["analyze", "buy", "50", "ORCL",
+                      "--type", "stop", "--stop", "140", "--adaptive"])
+        except SystemExit:
+            pass
+
+        captured = capsys.readouterr()
+        combined = (captured.out + captured.err).lower()
+        assert "order-types" in combined or "order types" in combined
+
+    def test_adaptive_on_stop_does_not_connect(self, monkeypatch, tmp_path):
+        import governor.gate.cli as cli
+
+        connect_calls = []
+        _patch_cli_seams(monkeypatch, tmp_path,
+                         verdict=_go_verdict(), preview=_go_preview())
+        original_make = cli._make_connection
+
+        def _tracking(config):
+            connect_calls.append(1)
+            return original_make(config)
+
+        monkeypatch.setattr(cli, "_make_connection", _tracking)
+
+        try:
+            cli.main(["analyze", "buy", "50", "ORCL",
+                      "--type", "stop", "--stop", "140", "--adaptive"])
+        except SystemExit:
+            pass
+
+        assert connect_calls == [], "validation must precede any TWS connection"

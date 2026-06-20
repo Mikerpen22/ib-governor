@@ -58,6 +58,7 @@ nav:
   - Home: index.md
   - Operator's Handbook: HANDBOOK.md
   - Rule Catalog: RULES.md
+  - Order Types: ORDER_TYPES.md
   - Architecture & Lessons: FORCLAUDE.md
   - Security: SECURITY.md
   - API Reference:

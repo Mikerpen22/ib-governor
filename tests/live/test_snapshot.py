@@ -25,14 +25,60 @@ def test_account_metrics_zero_nav_is_safe(mk_account_value):
     assert cushion == 0.0 and gross_leverage == 0.0
 
 
-def test_account_metrics_ignores_non_usd_and_missing(mk_account_value):
+def test_account_metrics_prefers_base_over_usd(mk_account_value):
+    """Multi-currency account: the BASE (consolidated) NAV row wins over USD-only.
+    USD-only would understate NAV and skew every %-of-NAV rule."""
     values = [
         mk_account_value("NetLiquidation", "365000", currency="USD"),
-        mk_account_value("NetLiquidation", "999999", currency="BASE"),  # must be ignored
+        mk_account_value("NetLiquidation", "420000", currency="BASE"),  # consolidated wins
     ]
     nav, cushion, gross = account_metrics(values)
-    assert nav == pytest.approx(365000.0)   # USD wins, BASE ignored
+    assert nav == pytest.approx(420000.0)   # BASE wins over USD
     assert cushion == 0.0 and gross == 0.0  # ExcessLiquidity/GrossPositionValue missing -> 0
+
+
+def test_account_metrics_falls_back_to_usd_when_no_base(mk_account_value):
+    """No BASE row present -> USD is used (the common single-currency capture)."""
+    values = [
+        mk_account_value("NetLiquidation", "365000", currency="USD"),
+        mk_account_value("ExcessLiquidity", "200000", currency="USD"),
+        mk_account_value("GrossPositionValue", "400000", currency="USD"),
+    ]
+    nav, cushion, gross = account_metrics(values)
+    assert nav == pytest.approx(365000.0)
+    assert cushion == pytest.approx(200000.0 / 365000.0)
+    assert gross == pytest.approx(400000.0 / 365000.0)
+
+
+def test_account_metrics_falls_back_to_any_currency_when_no_base_or_usd(mk_account_value):
+    """Neither BASE nor USD present -> first available row is used (never silently 0)."""
+    values = [mk_account_value("NetLiquidation", "100000", currency="EUR")]
+    nav, cushion, gross = account_metrics(values)
+    assert nav == pytest.approx(100000.0)
+
+
+def test_account_metrics_resolves_each_tag_with_base_preference(mk_account_value):
+    """Each tag (NAV, ExcessLiquidity, GrossPositionValue) prefers its own BASE row."""
+    values = [
+        mk_account_value("NetLiquidation", "100000", currency="USD"),
+        mk_account_value("NetLiquidation", "250000", currency="BASE"),
+        mk_account_value("ExcessLiquidity", "50000", currency="USD"),
+        mk_account_value("ExcessLiquidity", "150000", currency="BASE"),
+        mk_account_value("GrossPositionValue", "80000", currency="USD"),
+        mk_account_value("GrossPositionValue", "400000", currency="BASE"),
+    ]
+    nav, cushion, gross = account_metrics(values)
+    assert nav == pytest.approx(250000.0)
+    assert cushion == pytest.approx(150000.0 / 250000.0)  # BASE excess / BASE nav
+    assert gross == pytest.approx(400000.0 / 250000.0)    # BASE gross / BASE nav
+
+
+def test_account_metrics_skips_sentinel_nav(mk_account_value):
+    """An UNSET-sentinel NAV (≈1.79e308) must not be treated as a real (huge) NAV."""
+    values = [mk_account_value("NetLiquidation", str(1.7976931348623157e308), currency="USD")]
+    nav, cushion, gross = account_metrics(values)
+    # sentinel -> _finite_float maps to 0.0 -> nav<=0 -> safe zeros
+    assert nav == 0.0 and cushion == 0.0 and gross == 0.0
 
 
 # append to tests/live/test_snapshot.py
@@ -80,6 +126,65 @@ def test_futures_activity_derives_pnl_counts_and_churn(mk_fill):
 
 def test_futures_activity_empty(mk_fill):
     assert futures_activity([]) == (0.0, 0, 0, {})
+
+
+# IBKR UNSET sentinel — realizedPNL not yet computed.
+_UNSET = 1.7976931348623157e308
+
+
+def test_futures_activity_excludes_sentinel_realized_pnl(mk_fill):
+    """A not-yet-computed realizedPNL (IBKR UNSET sentinel ≈1.79e308) must NOT be
+    summed — otherwise it dwarfs NAV and fires a phantom house-money lockout."""
+    fills = [
+        mk_fill("FUT", realized_pnl=500.0, order_id=1, local_symbol="MNQU6"),
+        mk_fill("FUT", realized_pnl=_UNSET, order_id=2, local_symbol="MNQU6"),  # sentinel
+    ]
+    pnl, trades, losers, counts = futures_activity(fills)
+    assert pnl == pytest.approx(500.0)        # sentinel excluded from the sum
+    assert losers == 0                        # sentinel is not a loser
+
+
+def test_futures_activity_sentinel_does_not_count_as_loser_when_negative(mk_fill):
+    """A negative-magnitude sentinel must not register as a losing trade."""
+    fills = [mk_fill("FUT", realized_pnl=-_UNSET, order_id=1, local_symbol="MNQU6")]
+    pnl, trades, losers, counts = futures_activity(fills)
+    assert pnl == pytest.approx(0.0)
+    assert losers == 0
+
+
+def test_futures_activity_nan_realized_pnl_excluded(mk_fill):
+    """A nan realizedPNL must not poison the sum (nan would propagate through +)."""
+    nan = float("nan")
+    fills = [
+        mk_fill("FUT", realized_pnl=100.0, order_id=1, local_symbol="MNQU6"),
+        mk_fill("FUT", realized_pnl=nan, order_id=2, local_symbol="MNQU6"),
+    ]
+    pnl, trades, losers, counts = futures_activity(fills)
+    assert pnl == pytest.approx(100.0)
+    assert math.isfinite(pnl)
+
+
+def test_futures_exposure_skips_nan_market_price(mk_portfolio_item):
+    """A nan marketPrice must be skipped, not propagated — otherwise notional becomes
+    nan and the futures-notional rules silently go quiet."""
+    nan = float("nan")
+    items = [
+        mk_portfolio_item("FUT", position=2, market_price=21000.0, multiplier=2),
+        mk_portfolio_item("FUT", position=3, market_price=nan, multiplier=2),  # skipped
+    ]
+    notional, contracts = futures_exposure(items, mnq_notional_usd=42000.0)
+    assert notional == pytest.approx(2 * 2 * 21000.0)  # only the finite position counts
+    assert math.isfinite(notional)
+
+
+def test_futures_exposure_skips_nonpositive_market_price(mk_portfolio_item):
+    """A ≤0 marketPrice (e.g. an unpriced contract) is skipped, not summed as 0/negative."""
+    items = [
+        mk_portfolio_item("FUT", position=2, market_price=21000.0, multiplier=2),
+        mk_portfolio_item("FUT", position=3, market_price=0.0, multiplier=2),  # skipped
+    ]
+    notional, contracts = futures_exposure(items, mnq_notional_usd=42000.0)
+    assert notional == pytest.approx(2 * 2 * 21000.0)
 
 
 # append to tests/live/test_snapshot.py

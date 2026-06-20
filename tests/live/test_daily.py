@@ -12,7 +12,11 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from governor.config import RulesConfig
-from governor.live.daily import collect_day_data
+from governor.live.daily import (
+    VIX_ELEVATED_THRESHOLD,
+    collect_day_data,
+    collect_market_backdrop,
+)
 
 ET = ZoneInfo("America/New_York")
 
@@ -76,17 +80,59 @@ def _fake_ib(
     nav: float = 250_000.0,
     portfolio: list | None = None,
     fills: list | None = None,
+    req_historical_data=None,
 ) -> SimpleNamespace:
     account_values = [
         _account_value("NetLiquidation", str(nav)),
         _account_value("ExcessLiquidity", str(nav * 0.5)),
         _account_value("GrossPositionValue", str(nav * 0.8)),
     ]
-    return SimpleNamespace(
+    ib = SimpleNamespace(
         accountValues=lambda: account_values,
         portfolio=lambda: portfolio or [],
         fills=lambda: fills or [],
     )
+    if req_historical_data is not None:
+        ib.reqHistoricalData = req_historical_data
+    return ib
+
+
+# ---------------------------------------------------------------------------
+# Market-backdrop fake helpers
+# ---------------------------------------------------------------------------
+
+def _bar(close: float):
+    """A minimal duck-typed daily bar — only .close is read by the collector."""
+    return SimpleNamespace(close=close)
+
+
+def _contract_key(contract) -> str:
+    """How the fake reqHistoricalData identifies which symbol is requested.
+
+    Stock(...) carries .symbol; Index('VIX', 'CBOE') also carries .symbol='VIX'.
+    """
+    return getattr(contract, "symbol", "") or getattr(contract, "localSymbol", "")
+
+
+def _fake_hist(bars_by_symbol: dict[str, list]):
+    """Build a reqHistoricalData(contract, **kw) that returns canned bars per symbol.
+
+    A symbol mapped to an Exception instance (or class) raises when fetched
+    (drives the fail-soft tests). A symbol absent from the mapping returns [].
+    """
+    def req(contract, **kwargs):
+        key = _contract_key(contract)
+        val = bars_by_symbol.get(key, [])
+        if isinstance(val, BaseException):
+            raise val
+        if isinstance(val, type) and issubclass(val, BaseException):
+            raise val("boom")
+        return val
+    return req
+
+
+# Two daily bars (prev, latest): +1% move on a 100→101 close.
+_TWO_BARS_UP = [_bar(100.0), _bar(101.0)]
 
 
 # ---------------------------------------------------------------------------
@@ -348,3 +394,168 @@ class TestJsonSerializable:
                 assert not isinstance(obj, dt.datetime), f"Found datetime: {obj!r}"
 
         _check_no_datetimes(result)
+
+
+# ---------------------------------------------------------------------------
+# Tests: market backdrop (indices + VIX) — collect_market_backdrop
+# ---------------------------------------------------------------------------
+
+# All four index ETFs + VIX, each with a known two-bar series.
+_FULL_BACKDROP = {
+    "SPY": [_bar(500.0), _bar(502.0)],   # +0.4%
+    "QQQ": [_bar(440.0), _bar(439.12)],  # -0.2%
+    "DIA": [_bar(390.0), _bar(391.95)],  # +0.5%
+    "IWM": [_bar(200.0), _bar(199.0)],   # -0.5%
+    "VIX": [_bar(18.0), _bar(23.0)],     # elevated (>20)
+}
+
+
+class TestMarketBackdropIndices:
+    def test_change_pct_computed_from_prev_and_latest_close(self):
+        ib = _fake_ib(req_historical_data=_fake_hist(_FULL_BACKDROP))
+        backdrop = collect_market_backdrop(ib)
+
+        spy = backdrop["indices"]["SPY"]
+        assert spy["label"] == "S&P 500"
+        assert spy["last"] == pytest.approx(502.0)
+        assert spy["change_pct"] == pytest.approx((502.0 - 500.0) / 500.0 * 100)  # +0.4%
+
+        qqq = backdrop["indices"]["QQQ"]
+        assert qqq["label"] == "Nasdaq 100"
+        assert qqq["change_pct"] == pytest.approx((439.12 - 440.0) / 440.0 * 100)  # -0.2%
+
+    def test_all_four_indices_present_with_labels(self):
+        ib = _fake_ib(req_historical_data=_fake_hist(_FULL_BACKDROP))
+        backdrop = collect_market_backdrop(ib)
+        labels = {sym: entry["label"] for sym, entry in backdrop["indices"].items()}
+        assert labels == {
+            "SPY": "S&P 500",
+            "QQQ": "Nasdaq 100",
+            "DIA": "Dow",
+            "IWM": "Russell 2000",
+        }
+
+    def test_missing_or_empty_bars_set_entry_to_none(self):
+        partial = {**_FULL_BACKDROP, "IWM": []}  # IWM returns no bars
+        ib = _fake_ib(req_historical_data=_fake_hist(partial))
+        backdrop = collect_market_backdrop(ib)
+        assert backdrop["indices"]["IWM"] is None
+        # Others still populated.
+        assert backdrop["indices"]["SPY"]["last"] == pytest.approx(502.0)
+
+    def test_single_bar_yields_none(self):
+        """A one-bar series has no prior close to diff against → None, not a raise."""
+        partial = {**_FULL_BACKDROP, "DIA": [_bar(390.0)]}
+        ib = _fake_ib(req_historical_data=_fake_hist(partial))
+        backdrop = collect_market_backdrop(ib)
+        assert backdrop["indices"]["DIA"] is None
+
+
+class TestMarketBackdropVix:
+    def test_vix_elevated_above_threshold(self):
+        ib = _fake_ib(req_historical_data=_fake_hist(_FULL_BACKDROP))
+        backdrop = collect_market_backdrop(ib)
+        vix = backdrop["vix"]
+        assert vix["level"] == pytest.approx(23.0)
+        assert vix["elevated"] is True
+        assert vix["signal"] == "elevated fear — contrarian long"
+        assert vix["change_pct"] == pytest.approx((23.0 - 18.0) / 18.0 * 100)
+
+    def test_vix_calm_at_or_below_threshold(self):
+        calm = {**_FULL_BACKDROP, "VIX": [_bar(15.0), _bar(18.0)]}
+        ib = _fake_ib(req_historical_data=_fake_hist(calm))
+        backdrop = collect_market_backdrop(ib)
+        vix = backdrop["vix"]
+        assert vix["level"] == pytest.approx(18.0)
+        assert vix["elevated"] is False
+        assert vix["signal"] == "calm"
+
+    def test_vix_exactly_at_threshold_is_not_elevated(self):
+        """Threshold is strict >: a level == VIX_ELEVATED_THRESHOLD is calm."""
+        at = {**_FULL_BACKDROP, "VIX": [_bar(19.0), _bar(VIX_ELEVATED_THRESHOLD)]}
+        ib = _fake_ib(req_historical_data=_fake_hist(at))
+        backdrop = collect_market_backdrop(ib)
+        assert backdrop["vix"]["elevated"] is False
+        assert backdrop["vix"]["signal"] == "calm"
+
+    def test_vix_none_when_unavailable(self):
+        no_vix = {k: v for k, v in _FULL_BACKDROP.items() if k != "VIX"}
+        ib = _fake_ib(req_historical_data=_fake_hist(no_vix))
+        backdrop = collect_market_backdrop(ib)
+        assert backdrop["vix"] is None
+        # Indices unaffected.
+        assert backdrop["indices"]["SPY"]["last"] == pytest.approx(502.0)
+
+    def test_threshold_constant_is_twenty(self):
+        assert VIX_ELEVATED_THRESHOLD == pytest.approx(20.0)
+
+
+class TestMarketBackdropFailSoft:
+    def test_one_symbol_raising_does_not_sink_the_rest(self):
+        """A reqHistoricalData that raises for SPY → that entry None, others survive."""
+        bars = {**_FULL_BACKDROP, "SPY": RuntimeError("TWS disconnected")}
+        ib = _fake_ib(req_historical_data=_fake_hist(bars))
+        backdrop = collect_market_backdrop(ib)  # must not raise
+        assert backdrop["indices"]["SPY"] is None
+        assert backdrop["indices"]["QQQ"]["change_pct"] == pytest.approx(-0.2, abs=1e-6)
+        assert backdrop["vix"]["elevated"] is True
+
+    def test_vix_raising_yields_none_indices_survive(self):
+        bars = {**_FULL_BACKDROP, "VIX": RuntimeError("no entitlement")}
+        ib = _fake_ib(req_historical_data=_fake_hist(bars))
+        backdrop = collect_market_backdrop(ib)
+        assert backdrop["vix"] is None
+        assert backdrop["indices"]["DIA"]["change_pct"] == pytest.approx(0.5, abs=1e-6)
+
+    def test_ib_without_req_historical_data_does_not_raise(self):
+        """A fake IB lacking reqHistoricalData entirely → all-None backdrop, no raise."""
+        ib = _fake_ib()  # no reqHistoricalData attribute
+        backdrop = collect_market_backdrop(ib)
+        assert backdrop["vix"] is None
+        assert all(v is None for v in backdrop["indices"].values())
+
+    def test_reqhistoricaldata_raising_globally_is_contained(self):
+        def boom(contract, **kwargs):
+            raise RuntimeError("hard down")
+
+        ib = _fake_ib(req_historical_data=boom)
+        backdrop = collect_market_backdrop(ib)  # must not raise
+        assert backdrop["vix"] is None
+        assert all(v is None for v in backdrop["indices"].values())
+
+
+# ---------------------------------------------------------------------------
+# Tests: collect_day_data wiring (backdrop keys + existing keys preserved)
+# ---------------------------------------------------------------------------
+
+class TestCollectDayDataBackdropWiring:
+    def test_indices_and_vix_keys_added(self):
+        ib = _fake_ib(req_historical_data=_fake_hist(_FULL_BACKDROP))
+        result = collect_day_data(ib, RulesConfig(), _TODAY)
+        assert "indices" in result
+        assert "vix" in result
+        assert result["indices"]["SPY"]["last"] == pytest.approx(502.0)
+        assert result["vix"]["elevated"] is True
+
+    def test_existing_keys_still_present_alongside_backdrop(self):
+        ib = _fake_ib(req_historical_data=_fake_hist(_FULL_BACKDROP))
+        result = collect_day_data(ib, RulesConfig(), _TODAY)
+        required_keys = {
+            "date", "nav", "margin_cushion", "gross_leverage",
+            "realized_pnl_today", "fills", "positions", "trips",
+            "indices", "vix",
+        }
+        assert required_keys.issubset(result.keys())
+
+    def test_collector_does_not_raise_without_market_data(self):
+        """The original fake (no reqHistoricalData) must still drive collect_day_data."""
+        ib = _fake_ib()
+        result = collect_day_data(ib, RulesConfig(), _TODAY)
+        assert result["vix"] is None
+        assert all(v is None for v in result["indices"].values())
+
+    def test_result_with_backdrop_is_json_serializable(self):
+        ib = _fake_ib(req_historical_data=_fake_hist(_FULL_BACKDROP))
+        result = collect_day_data(ib, RulesConfig(), _TODAY)
+        serialized = json.dumps(result)  # must not raise
+        assert isinstance(serialized, str)

@@ -65,6 +65,8 @@ class StateSnapshot:
     futures_trade_count_today: int = 0
     futures_losing_trades_today: int = 0
     futures_notional: float = 0.0            # abs current futures notional, USD
+    futures_notional_signed: float = 0.0      # + net long, − net short (for hypothetical exposure)
+    futures_unrealized_pnl_today: float = 0.0 # mark-to-market open futures P&L
     futures_contracts_overnight: float = 0.0 # MNQ-equivalent held into the close window
     minutes_to_futures_close: float | None = None
     # frozen=True blocks attribute reassignment but not interior dict mutation;
@@ -76,6 +78,10 @@ class StateSnapshot:
     # equities / portfolio (Plan 4a)
     drawdown_pct: float = 0.0                  # fraction below NAV high-water-mark, 0..1
     sector_weights: dict[str, float] = field(default_factory=dict)   # sector -> fraction of NAV
-    name_weights: dict[str, float] = field(default_factory=dict)     # symbol -> fraction of NAV
+    name_weights: dict[str, float] = field(default_factory=dict)     # symbol -> fraction of NAV (abs magnitude)
+    # SIGNED per-name exposure (+ net long, − net short) as a fraction of NAV. Lets the
+    # hypothetical-snapshot model a SELL correctly: covering a long shrinks magnitude, but
+    # opening/growing a short GROWS magnitude. name_weights carries only the magnitude.
+    name_exposure_signed: dict[str, float] = field(default_factory=dict)
     name_trade_counts_week: dict[str, int] = field(default_factory=dict)
     equity_adds_at_loss_today: tuple[str, ...] = ()  # equity names added-to today that are at a loss

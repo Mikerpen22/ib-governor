@@ -12,6 +12,10 @@ Design contract:
 """
 from __future__ import annotations
 
+import datetime as dt
+import math
+from zoneinfo import ZoneInfo
+
 from ib_async import Future, LimitOrder, Stock, StopOrder
 
 from governor.config import RulesConfig
@@ -23,18 +27,29 @@ from governor.gate.analysis import (
     sizing,
 )
 from governor.gate.intent import Action, OrderIntent, SecType, build_order
-from governor.live.snapshot import _to_float
+from governor.live.builder import live_mnq_notional
+from governor.live.snapshot import _PNL_SENTINEL, _to_float
 from governor.model import StateSnapshot
 from governor.rules.engine import evaluate
 from governor.state.json_store import StateFileError
 
-# Exchange map for common futures roots. Default falls back to "CME".
+# Exchange map for futures roots. NO silent default — an unmapped root is a
+# hard error (see qualify). Routing a future to the wrong exchange would qualify
+# the wrong contract and trade real money against it, so we fail loud instead.
 _FUT_EXCHANGE: dict[str, str] = {
-    "MNQ": "CME",
-    "MES": "CME",
-    "ES": "CME",
-    "NQ": "CME",
+    # CME (equity-index + FX futures)
+    "ES": "CME", "MES": "CME", "NQ": "CME", "MNQ": "CME", "RTY": "CME", "M2K": "CME",
+    "6E": "CME", "6J": "CME", "6B": "CME", "6A": "CME", "6C": "CME",
+    # NYMEX (energy)
+    "CL": "NYMEX", "MCL": "NYMEX", "NG": "NYMEX", "RB": "NYMEX", "HO": "NYMEX",
+    # COMEX (metals)
+    "GC": "COMEX", "MGC": "COMEX", "SI": "COMEX", "HG": "COMEX",
+    # CBOT (rates + grains)
+    "ZB": "CBOT", "UB": "CBOT", "ZN": "CBOT", "ZF": "CBOT", "ZT": "CBOT",
+    "YM": "CBOT", "MYM": "CBOT", "ZC": "CBOT", "ZS": "CBOT", "ZW": "CBOT",
 }
+
+ET = ZoneInfo("America/New_York")
 
 
 # ---------------------------------------------------------------------------
@@ -42,25 +57,97 @@ _FUT_EXCHANGE: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 
-def qualify(ib, intent: OrderIntent):
-    """Return the first qualified ib_async Contract for the given intent.
+def _today_et() -> str:
+    """Today's date in America/New_York as 'YYYYMMDD'.
 
-    STK: Stock(symbol, "SMART", "USD")
-    FUT: Future(symbol, exchange) using _FUT_EXCHANGE map (default "CME")
+    A module-level seam so front-month selection is deterministic in tests
+    (monkeypatch runner._today_et). Futures roll on the exchange's clock, so
+    ET — not UTC — is the right reference for "is this expiry still live".
+    """
+    return dt.datetime.now(tz=ET).strftime("%Y%m%d")
+
+
+def _front_future(ib, symbol: str, exchange: str):
+    """Resolve the front-month FUT contract for *symbol* on *exchange*.
+
+    The real ib.qualifyContracts(Future(symbol, exchange)) — with the default
+    returnAll=False — does NOT disambiguate multiple listed expiries: it appends
+    None to the result. So we list the expiries via reqContractDetails, pick the
+    earliest non-expired one ourselves, then qualify that fully-specified
+    contract. Raises ValueError (fail-loud) if no usable contract is found.
+    """
+    details = ib.reqContractDetails(Future(symbol, exchange=exchange))
+    contracts = [
+        d.contract for d in details if getattr(d.contract, "secType", None) == "FUT"
+    ]
+    if not contracts:
+        raise ValueError(f"No FUT contracts found for {symbol!r} on {exchange}")
+
+    # lastTradeDateOrContractMonth is 'YYYYMMDD' or 'YYYYMM' — normalize to a
+    # comparable 'YYYYMMDD' (pad a bare month to end-of-month-ish) before sorting.
+    def _norm(c) -> str:
+        d = c.lastTradeDateOrContractMonth or ""
+        if len(d) == 8:
+            return d
+        if len(d) == 6:
+            return d + "31"
+        return "99999999"
+
+    today = _today_et()
+    live = [c for c in contracts if _norm(c) >= today]
+    pool = live or contracts  # all expired? still pick the earliest (visible, not None)
+    front = min(pool, key=_norm)
+
+    qualified = [c for c in ib.qualifyContracts(front) if c is not None]
+    if not qualified:
+        raise ValueError(f"Could not qualify front-month {symbol!r}")
+    return qualified[0]
+
+
+def qualify(ib, intent: OrderIntent):
+    """Return the single qualified ib_async Contract for the given intent.
+
+    STK: Stock(symbol, "SMART", currency, primaryExchange=...). The result must
+         be exactly one contract — zero is a fail-loud error, and >1 means the
+         symbol is ambiguous (e.g. listed in multiple currencies) and the caller
+         must disambiguate via currency / primary_exchange.
+    FUT: Front-month resolution via _front_future (the under-specified Future
+         path returns None from the real qualifyContracts — see that helper).
+         The exchange comes from _FUT_EXCHANGE with NO silent default.
+
+    All qualifyContracts results are stripped of None BEFORE the truthiness
+    check: the real lib appends None for an under-specified contract, and a bare
+    `if not [None]` is False — letting that None slip through to whatIfOrder /
+    reqTickers / placeOrder, where it fails opaquely.
     """
     if intent.sec_type is SecType.STK:
-        contract = Stock(intent.symbol, "SMART", "USD")
-    else:
-        exchange = _FUT_EXCHANGE.get(intent.symbol, "CME")
-        contract = Future(intent.symbol, exchange=exchange)
-
-    qualified = ib.qualifyContracts(contract)
-    if not qualified:
-        raise ValueError(
-            f"IB could not qualify a contract for {intent.symbol!r} "
-            f"({intent.sec_type.value})"
+        contract = Stock(
+            intent.symbol,
+            "SMART",
+            intent.currency,
+            primaryExchange=intent.primary_exchange or "",
         )
-    return qualified[0]
+        qualified = [c for c in ib.qualifyContracts(contract) if c is not None]
+        if not qualified:
+            raise ValueError(
+                f"IB could not qualify a contract for {intent.symbol!r} "
+                f"({intent.sec_type.value})"
+            )
+        if len(qualified) > 1:
+            raise ValueError(
+                f"{intent.symbol!r} is ambiguous ({len(qualified)} matches); "
+                f"specify currency/primary_exchange."
+            )
+        return qualified[0]
+
+    # SecType.FUT — fail loud on an unmapped root rather than guessing CME.
+    exchange = _FUT_EXCHANGE.get(intent.symbol)
+    if exchange is None:
+        raise ValueError(
+            f"Unknown futures root {intent.symbol!r}; add it to _FUT_EXCHANGE "
+            f"with its correct exchange before trading."
+        )
+    return _front_future(ib, intent.symbol, exchange)
 
 
 # ---------------------------------------------------------------------------
@@ -120,16 +207,55 @@ def _order_state(whatif):
     return whatif
 
 
+def _usable_float(value) -> float | None:
+    """Parse an OrderState margin field to a usable finite number, or None when the field
+    is absent / empty / unparseable / non-finite / the IBKR UNSET sentinel (≈1.79e308).
+
+    The None return is what lets _buying_power_ok tell "field genuinely present with a real
+    number" from "no value" — a distinction _to_float (which maps None/'' → 0.0) erases, and
+    the reason a 1.79e308 sentinel must not masquerade as a real reading."""
+    if value is None:
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(v) or abs(v) >= _PNL_SENTINEL:
+        return None
+    return v
+
+
 def _buying_power_ok(state) -> bool:
-    """Return False ONLY when insufficiency is clearly established: a margin state is
-    present, both equityWithLoanAfter and initMarginAfter parse positive, and init margin
-    exceeds equity. A missing state (preview unavailable) or missing / zero / unparseable
-    fields are treated as OK — we never false-block a trade on absent margin data."""
+    """Return False ONLY when insufficiency is clearly established. [M1] Prefer the real
+    binding constraint — the *after-trade* free funds (availableFundsAfter, then
+    excessLiquidityAfter): if either is present and NEGATIVE, the order overdraws margin →
+    BLOCK. Fall back to the init-margin-vs-equity check when no usable after-funds field
+    is present.
+
+    All reads are sentinel/finite-guarded via _usable_float, so a 1.79e308 UNSET sentinel
+    can NEVER silently pass as "huge free funds, definitely ok" — it is treated as no value,
+    and we move on to the fallback (and ultimately fail-open) rather than false-pass.
+
+    Fail-OPEN contract preserved: a missing state (preview unavailable) or missing / zero /
+    unparseable / sentinel-only fields are treated as OK — we never false-block a trade on
+    absent margin data.
+    """
     if state is None:
         return True
-    equity = _to_float(getattr(state, "equityWithLoanAfter", 0))
-    init = _to_float(getattr(state, "initMarginAfter", 0))
-    if equity > 0 and init > 0 and init > equity:
+
+    # 1. Real binding constraint: after-trade free funds. Only act when a usable number is
+    # present (None => field absent/sentinel => skip to fallback, never a false-pass).
+    for field in ("availableFundsAfter", "excessLiquidityAfter"):
+        funds_after = _usable_float(getattr(state, field, None))
+        if funds_after is not None:
+            return funds_after >= 0.0  # negative free funds => insufficient
+
+    # 2. Fallback: init margin must not exceed equity (both sentinel-guarded).
+    equity = _usable_float(getattr(state, "equityWithLoanAfter", None))
+    init = _usable_float(getattr(state, "initMarginAfter", None))
+    if equity is not None and init is not None and equity > 0 and init > 0 and init > equity:
         return False
     return True
 
@@ -162,21 +288,28 @@ def build_bracket(ib, intent: OrderIntent, contract):
     transmits. If neither protective price is set, returns just the single
     entry order (transmit=True).
     """
+    # Parent inherits intent.tif and (for MKT/LMT) the Adaptive algo via build_order.
     parent = build_order(intent)
     parent.orderId = ib.client.getReqId()
     opp = "SELL" if intent.action is Action.BUY else "BUY"
     children = []
+    # Protective children get protective_tif (default GTC) so they outlive the
+    # session and keep protecting the filled entry overnight. They are built
+    # directly here (NOT via build_order/_apply_adaptive) — Adaptive on a STP
+    # child is rejected by TWS, so it must never reach them.
     if intent.take_profit is not None:
         tp = LimitOrder(opp, intent.quantity, intent.take_profit)
         tp.parentId = parent.orderId
         tp.orderId = ib.client.getReqId()
         tp.transmit = False
+        tp.tif = intent.protective_tif
         children.append(tp)
     if intent.stop_loss is not None:
         sl = StopOrder(opp, intent.quantity, intent.stop_loss)
         sl.parentId = parent.orderId
         sl.orderId = ib.client.getReqId()
         sl.transmit = False
+        sl.tif = intent.protective_tif
         children.append(sl)
     if not children:
         parent.transmit = True
@@ -227,12 +360,16 @@ def analyze_intent(
     price = _reference_price(ib, contract, intent)
     notional = _order_notional(intent, contract, price)
 
-    # 4. Hypothetical post-trade snapshot
+    # 4. Hypothetical post-trade snapshot. [C2] Use the SAME live MNQ divisor the daemon
+    # uses (live_mnq_notional), falling back to the static config only when unavailable —
+    # otherwise the gate and daemon disagree on MNQ-equivalent contracts near the overnight
+    # trip (e.g. live ~$61k vs stale $42k config).
+    mnq = live_mnq_notional(ib) or config.live.mnq_notional_usd
     hypo = hypothetical_snapshot(
         current,
         intent,
         notional,
-        mnq_notional_usd=config.live.mnq_notional_usd,
+        mnq_notional_usd=mnq,
         sector=sector,
     )
 
@@ -262,6 +399,11 @@ def analyze_intent(
     name_weight_before = current.name_weights.get(intent.symbol, 0.0)
     name_weight_after = hypo.name_weights.get(intent.symbol, 0.0)
 
+    # [MEDIUM] initMarginAfter can be the IBKR UNSET sentinel (~1.79e308) even when
+    # a real OrderState came back. Reuse the sentinel/finite guard so we never show
+    # the sentinel as a dollar figure — None signals "not available" instead.
+    init_margin = _usable_float(getattr(wstate, "initMarginAfter", None)) if wstate is not None else None
+
     preview: dict = {
         "symbol": intent.symbol,
         "action": intent.action.value,
@@ -271,7 +413,7 @@ def analyze_intent(
         "pct_nav": sized.pct_nav,
         "buying_power_ok": bp_ok,
         "whatif_available": wstate is not None,
-        "init_margin": _to_float(getattr(wstate, "initMarginAfter", 0)) if wstate is not None else None,
+        "init_margin": init_margin,
         "name_weight_before": name_weight_before,
         "name_weight_after": name_weight_after,
         "trips": [

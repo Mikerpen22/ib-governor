@@ -8,20 +8,28 @@ captures that distinction via ``mutate_hwm``.
 from __future__ import annotations
 
 import datetime as dt
+import logging
 
 from ib_async import ContFuture
 
 from ..model import StateSnapshot
 from .snapshot import _to_float, account_metrics, build_snapshot, equity_adds_at_loss, is_sec_type
 
+log = logging.getLogger("governor.live.builder")
+
 
 def live_mnq_notional(ib) -> float | None:
     """Live MNQ single-contract notional (front-month price × multiplier), used to
     normalize futures exposure into MNQ-equivalent contracts. Returns None if it can't
-    be fetched (caller falls back to the configured default). FAIL-SOFT: never raises."""
+    be fetched (caller falls back to the configured default). FAIL-SOFT: never raises.
+
+    Every None path logs a warning first: silently falling back means the operator
+    can't tell the MNQ normalization isn't live (a stale default could mis-scale the
+    overnight-notional rule)."""
     try:
         qualified = ib.qualifyContracts(ContFuture("MNQ", "CME"))
         if not qualified:
+            log.warning("live MNQ normalization unavailable: qualifyContracts returned no contract; falling back to configured default")
             return None
         c = qualified[0]
         ticker = ib.reqTickers(c)[0]
@@ -31,8 +39,10 @@ def live_mnq_notional(ib) -> float | None:
         mult = _to_float(getattr(c, "multiplier", None)) or 2.0  # MNQ multiplier is 2
         if price and price > 0:
             return float(price) * mult
+        log.warning("live MNQ normalization unavailable: no usable MNQ price (marketPrice/close); falling back to configured default")
         return None
     except Exception:  # noqa: BLE001 — fail soft to the configured default; mnq is non-critical
+        log.warning("live MNQ normalization failed; falling back to configured default", exc_info=True)
         return None
 
 

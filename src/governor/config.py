@@ -56,7 +56,7 @@ class FuturesRules(BaseModel):
     max_losing_trades: NonNegativeInt = 3            # losing-streak -> platform off
     overtrading_warn: NonNegativeInt = 10            # trades/day soft warning
     overtrading_hard: NonNegativeInt = 20            # trades/day hard halt
-    max_overnight_contracts: NonNegativeFloat = 2.0  # MNQ-equiv overnight cap (~1/3 NAV)
+    max_overnight_contracts: NonNegativeFloat = 2.0  # MNQ-equiv overnight cap (≈⅓ NAV at live MNQ notional ~$61k/contract on a ~$350k NAV; not the stale $42k config default)
     close_window_min: NonNegativeFloat = 15.0        # minutes-before-close to check overnight
     max_notional_pct: float = Field(0.50, gt=0, le=5)  # intraday futures notional / NAV; fraction of NAV, 0–5 range; 1.0 = 100% of NAV (not 0–1 percent)
     churn_count: NonNegativeInt = 5                  # same-contract trades/day -> scalping flag

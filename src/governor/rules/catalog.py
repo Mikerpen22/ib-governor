@@ -48,7 +48,7 @@ CATALOG: tuple[RuleSpec, ...] = (
         "futures.daily_loss_stop", AssetClass.FUTURE,
         (Severity.HARD,), (ActionType.PLATFORM_OFF_TODAY,),
         ("futures.daily_loss_usd", "futures.max_losing_trades"),
-        "Daily realized loss limit or losing-streak limit hit → platform off for the day.",
+        "Daily loss limit (realized + open futures P&L) or losing-streak limit hit → platform off for the day.",
     ),
     RuleSpec(
         "futures.overtrading", AssetClass.FUTURE,

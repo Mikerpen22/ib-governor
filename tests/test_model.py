@@ -13,6 +13,8 @@ def test_snapshot_has_safe_defaults():
     assert s.minutes_to_futures_close is None
     assert s.futures_losing_trades_today == 0
     assert s.futures_notional == 0.0
+    assert s.futures_notional_signed == 0.0
+    assert s.futures_unrealized_pnl_today == 0.0
     assert s.futures_contracts_overnight == 0.0
     assert s.margin_cushion == 0.0
     assert s.gross_leverage == 0.0

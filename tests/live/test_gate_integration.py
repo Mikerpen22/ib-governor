@@ -113,7 +113,9 @@ def test_gate_analyze_spy_read_only(conn):
     # value-type sanity
     assert isinstance(preview["order_notional"], (int, float))
     assert isinstance(preview["pct_nav"], (int, float))
-    assert isinstance(preview["init_margin"], (int, float))
+    # init_margin is legitimately None when whatIfOrder returns [] (e.g. TWS
+    # 'Read-Only API' enabled, or the preview is otherwise unavailable).
+    assert preview["init_margin"] is None or isinstance(preview["init_margin"], (int, float))
     assert isinstance(preview["verdict"], str)
     assert isinstance(preview["reasons"], list)
 

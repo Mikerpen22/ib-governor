@@ -1,6 +1,6 @@
 """The ONLY module that calls an ib_async WRITE method (placeOrder,
-reqGlobalCancel). Every account-affecting call goes through `_guarded`, which
-short-circuits (logging intent) when dry_run is set."""
+reqGlobalCancel, cancelOrder). Every account-affecting call goes through
+`_guarded`, which short-circuits (logging intent) when dry_run is set."""
 from __future__ import annotations
 
 import datetime as dt
@@ -54,12 +54,31 @@ class ActionExecutor:
         )
 
     def place_orders(self, contract, orders) -> bool:
-        """Place a multi-order bracket through the single guarded write chokepoint (dry_run-gated)."""
+        """Place a multi-order bracket through the single guarded write chokepoint (dry_run-gated).
+
+        If placeOrder raises partway through (e.g. a network blip between the held
+        parent and the transmit=True child), cancel everything already placed so we
+        never strand a held parent or an unprotected fill. The cancel here is a
+        guarded compensating write on the failure path only — it stays INSIDE
+        _guarded, so it is dry-run-gated and within the single write chokepoint.
+        """
         sym = contract_symbol(contract) or "?"
         head = orders[0]
+
+        def _send():
+            placed = []
+            try:
+                for o in orders:
+                    placed.append(self.ib.placeOrder(contract, o))
+            except Exception:
+                for t in placed:  # cancel the partial bracket so nothing is left unprotected
+                    self.ib.cancelOrder(t.order)
+                raise
+            return placed
+
         return self._guarded(
             f"place bracket: {len(orders)} orders for {sym} ({head.action} {head.totalQuantity})",
-            lambda: [self.ib.placeOrder(contract, o) for o in orders],
+            _send,
         )
 
     def trim_futures(self, target_contracts: float) -> bool:

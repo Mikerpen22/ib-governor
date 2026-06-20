@@ -23,6 +23,9 @@ class BrakeConnection:
             readonly=self._cfg.readonly,
             account=self._cfg.account or "",
         )
+        # Delayed-frozen market data (type 4): lets sizing/notional work without a
+        # live data subscription. A live subscription, when present, still wins.
+        self.ib.reqMarketDataType(4)
         log.info(
             "connected TWS %s:%s clientId=%s readonly=%s",
             self._cfg.host, self._cfg.port, self._cfg.client_id, self._cfg.readonly,
@@ -34,6 +37,9 @@ class BrakeConnection:
             clientId=self._cfg.client_id, readonly=self._cfg.readonly,
             account=self._cfg.account or "",
         )
+        # Delayed-frozen market data (type 4): lets sizing/notional work without a
+        # live data subscription. A live subscription, when present, still wins.
+        self.ib.reqMarketDataType(4)
 
     def is_connected(self) -> bool:
         return self.ib.isConnected()

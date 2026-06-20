@@ -37,6 +37,53 @@ def test_daily_loss_silent_when_fine(make_snapshot):
     assert futures.daily_loss_stop(s, CFG) is None
 
 
+# ── [H2] daily_loss_stop includes UNREALIZED (open mark-to-market) loss ───────
+
+def test_daily_loss_fires_on_large_unrealized_loss_zero_realized(make_snapshot):
+    """Audit H2 (user decision): an open losing position with ZERO realized P&L
+    can trip the daily stop. realized 0 + unrealized −1500.01 < −1500."""
+    s = make_snapshot(
+        futures_realized_pnl_today=0.0,
+        futures_unrealized_pnl_today=-1500.01,
+        futures_losing_trades_today=0,
+    )
+    trip = futures.daily_loss_stop(s, CFG)
+    assert trip is not None
+    assert trip.action is ActionType.PLATFORM_OFF_TODAY
+
+
+def test_daily_loss_fires_on_combined_realized_plus_unrealized(make_snapshot):
+    """Neither leg alone breaches, but realized + unrealized together do."""
+    s = make_snapshot(
+        futures_realized_pnl_today=-900.0,
+        futures_unrealized_pnl_today=-700.0,  # combined −1600 < −1500
+        futures_losing_trades_today=0,
+    )
+    assert futures.daily_loss_stop(s, CFG) is not None
+
+
+def test_daily_loss_silent_when_open_gain_offsets_realized_loss(make_snapshot):
+    """A realized loss offset by a larger open GAIN must NOT trip (combined > −1500)."""
+    s = make_snapshot(
+        futures_realized_pnl_today=-1400.0,
+        futures_unrealized_pnl_today=+1000.0,  # combined −400
+        futures_losing_trades_today=0,
+    )
+    assert futures.daily_loss_stop(s, CFG) is None
+
+
+def test_daily_loss_message_mentions_open_pnl(make_snapshot):
+    """The trip message reflects realized + open (mark-to-market) futures P&L."""
+    s = make_snapshot(
+        futures_realized_pnl_today=0.0,
+        futures_unrealized_pnl_today=-2000.0,
+    )
+    trip = futures.daily_loss_stop(s, CFG)
+    assert trip is not None
+    msg = trip.message.lower()
+    assert "open" in msg or "mark-to-market" in msg or "unrealized" in msg
+
+
 def test_overtrading_warn_band(make_snapshot):
     s = make_snapshot(futures_trade_count_today=10)
     trip = futures.overtrading(s, CFG)

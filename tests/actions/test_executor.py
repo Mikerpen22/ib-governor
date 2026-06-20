@@ -2,6 +2,8 @@
 import datetime as dt
 from types import SimpleNamespace
 
+import pytest
+
 from governor.actions.executor import ActionExecutor
 from governor.actions.lockout import LockoutStore
 
@@ -145,3 +147,60 @@ def test_place_orders_armed_returns_true_calls_each_order(tmp_path):
     assert order1 in placed_orders
     assert order2 in placed_orders
     assert order3 in placed_orders
+
+
+# ── place_orders partial-failure -> compensating cancel ─────────────────────────
+
+class RaisingFakeIB:
+    """ib_async substitute that raises on the Nth placeOrder, and records every
+    Trade ticket it cancels. placeOrder returns a Trade-like ticket carrying .order
+    so the compensating-cancel path can cancel the already-placed parents."""
+
+    def __init__(self, raise_on=2):
+        self._raise_on = raise_on
+        self._n = 0
+        self.placed = []        # list of placed Trade-like tickets
+        self.cancelled = []     # list of orders passed to cancelOrder
+
+    def placeOrder(self, contract, order):
+        self._n += 1
+        if self._n == self._raise_on:
+            raise RuntimeError("network blip before transmit=True child")
+        ticket = SimpleNamespace(order=order, contract=contract)
+        self.placed.append(ticket)
+        return ticket
+
+    def cancelOrder(self, order):
+        self.cancelled.append(order)
+
+
+def test_place_orders_cancels_already_placed_when_later_raises(tmp_path):
+    """If placeOrder raises mid-bracket (armed), the already-placed orders are
+    cancelled (so no held parent / unprotected fill is stranded) and the exception
+    re-raises."""
+    ib = RaisingFakeIB(raise_on=2)
+    ex = _executor(ib, dry_run=False, tmp_path=tmp_path)
+    contract = FakeContract(symbol="AAPL")
+    order1 = FakeOrder(action="BUY", qty=10)   # placed
+    order2 = FakeOrder(action="SELL", qty=10)  # raises on this one
+    order3 = FakeOrder(action="SELL", qty=10)  # never reached
+
+    with pytest.raises(RuntimeError):
+        ex.place_orders(contract, [order1, order2, order3])
+
+    # The 1st (successfully placed) order was cancelled; the 3rd was never sent.
+    assert ib.cancelled == [order1]
+    assert order3 not in [t.order for t in ib.placed]
+
+
+def test_place_orders_partial_failure_in_dry_run_sends_nothing(tmp_path):
+    """Under dry_run the partial-failure path is never entered — no placeOrder, no
+    cancelOrder, returns False."""
+    ib = RaisingFakeIB(raise_on=1)
+    ex = _executor(ib, dry_run=True, tmp_path=tmp_path)
+    contract = FakeContract(symbol="AAPL")
+    orders = [FakeOrder(action="BUY", qty=10), FakeOrder(action="SELL", qty=10)]
+    result = ex.place_orders(contract, orders)
+    assert result is False
+    assert ib.placed == []
+    assert ib.cancelled == []

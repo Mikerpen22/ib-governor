@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from ib_async import LimitOrder, MarketOrder, Order, StopLimitOrder, StopOrder
+from ib_async import LimitOrder, MarketOrder, Order, StopLimitOrder, StopOrder, TagValue
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -24,6 +24,12 @@ class OrderType(str, Enum):
     STOP_LIMIT = "STOP_LIMIT"
 
 
+class AdaptivePriority(str, Enum):
+    URGENT = "Urgent"
+    NORMAL = "Normal"
+    PATIENT = "Patient"
+
+
 class OrderIntent(BaseModel):
     action: Action
     symbol: str = Field(min_length=1, max_length=20)
@@ -34,6 +40,24 @@ class OrderIntent(BaseModel):
     stop_price: float | None = None
     stop_loss: float | None = None
     take_profit: float | None = None
+    # Disambiguation hints for STK qualification. currency defaults to USD;
+    # primary_exchange (e.g. "NASDAQ", "NYSE", "TSE") narrows a symbol that is
+    # listed on multiple venues / in multiple currencies. See runner.qualify.
+    currency: str = "USD"
+    primary_exchange: str | None = None
+    # Time-in-force. ib_async orders default tif="" (= DAY), so an intraday
+    # protective stop placed as a DAY order is cancelled by TWS at the session
+    # close — leaving the filled entry unprotected overnight. tif is the ENTRY's
+    # TIF; protective_tif is applied to the bracket's children (default GTC so
+    # they outlive the session). protective_tif is configurable because some STK
+    # venues restrict GTC stops.
+    tif: str = "DAY"
+    protective_tif: str = "GTC"
+    # IBKR Adaptive algo (IBALGO). Adaptive is layered ON a MKT/LMT base order —
+    # it is NOT a new order type: order.orderType stays MKT/LMT and only
+    # algoStrategy/algoParams are added. Valid for MARKET/LIMIT only.
+    adaptive: bool = False
+    adaptive_priority: AdaptivePriority = AdaptivePriority.NORMAL
 
     model_config = {"frozen": True}
 
@@ -47,7 +71,23 @@ class OrderIntent(BaseModel):
             raise ValueError(f"{self.order_type.value} requires stop_price")
         if self.quantity <= 0:
             raise ValueError("quantity must be positive")
+        if self.adaptive and self.order_type not in (OrderType.MARKET, OrderType.LIMIT):
+            raise ValueError("adaptive is only valid for MARKET or LIMIT orders")
         return self
+
+
+def _apply_adaptive(order: Order, intent: OrderIntent) -> Order:
+    """Layer the IBKR Adaptive algo onto a MKT/LMT base order, in place.
+
+    Adaptive is an algo, not an order type: order.orderType is left untouched
+    (stays MKT/LMT) so the rest of the pipeline (whatIf, sizing, bracket
+    transmit/parentId/OCA) is unaffected. Only applied to MARKET/LIMIT orders;
+    NEVER to STOP/STOP_LIMIT (TWS rejects Adaptive on a stop).
+    """
+    if intent.adaptive:
+        order.algoStrategy = "Adaptive"
+        order.algoParams = [TagValue("adaptivePriority", intent.adaptive_priority.value)]
+    return order
 
 
 def build_order(intent: OrderIntent) -> Order:
@@ -59,9 +99,17 @@ def build_order(intent: OrderIntent) -> Order:
     action = intent.action.value
     quantity = intent.quantity
     if intent.order_type is OrderType.MARKET:
-        return MarketOrder(action, quantity)
+        order = MarketOrder(action, quantity)
+        order.tif = intent.tif
+        return _apply_adaptive(order, intent)
     if intent.order_type is OrderType.LIMIT:
-        return LimitOrder(action, quantity, intent.limit_price)
+        order = LimitOrder(action, quantity, intent.limit_price)
+        order.tif = intent.tif
+        return _apply_adaptive(order, intent)
     if intent.order_type is OrderType.STOP:
-        return StopOrder(action, quantity, intent.stop_price)
-    return StopLimitOrder(action, quantity, intent.limit_price, intent.stop_price)
+        order = StopOrder(action, quantity, intent.stop_price)
+        order.tif = intent.tif
+        return order
+    order = StopLimitOrder(action, quantity, intent.limit_price, intent.stop_price)
+    order.tif = intent.tif
+    return order

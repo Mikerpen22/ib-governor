@@ -46,14 +46,13 @@ def hypothetical_snapshot(
         A new ``StateSnapshot`` with weights/notional updated to reflect the
         hypothetical fill.  All other fields are preserved unchanged.
     """
-    delta = order_notional / current.nav if current.nav > 0 else 0.0
-    sign = 1.0 if intent.action is Action.BUY else -1.0
+    is_buy = intent.action is Action.BUY
 
     if intent.sec_type is SecType.STK:
-        return _apply_stk(current, intent, delta, sign, sector)
+        return _apply_stk(current, intent, order_notional, is_buy, sector)
 
     # SecType.FUT
-    return _apply_fut(current, sign, order_notional, mnq_notional_usd)
+    return _apply_fut(current, is_buy, order_notional, mnq_notional_usd)
 
 
 # ---------------------------------------------------------------------------
@@ -64,33 +63,61 @@ def hypothetical_snapshot(
 def _apply_stk(
     current: StateSnapshot,
     intent: OrderIntent,
-    delta: float,
-    sign: float,
+    order_notional: float,
+    is_buy: bool,
     sector: str | None,
 ) -> StateSnapshot:
+    """Model a STK fill on the SIGNED per-name exposure so concentration tracks
+    magnitude (audit H1): BUY grows-a-long / covers-a-short, SELL shrinks-a-long /
+    grows-a-short — the affected weights move by |Δ| in the right direction.
+
+    The signed map is the source of truth; ``name_weights`` and the sector bucket carry
+    only the absolute magnitude (``abs(new_signed)``).  The sector delta is the *change*
+    in this name's magnitude (it can decrease the bucket when covering/reducing).
+    """
+    sym = intent.symbol
+    nav = current.nav
+    delta_w = order_notional / nav if nav > 0 else 0.0
+
+    cur_signed = current.name_exposure_signed.get(sym, 0.0)
+    new_signed = cur_signed + (delta_w if is_buy else -delta_w)
+    new_weight = abs(new_signed)
+    weight_change = new_weight - abs(cur_signed)  # signed change in this name's magnitude
+
+    new_name_exposure_signed = dict(current.name_exposure_signed)
+    new_name_exposure_signed[sym] = new_signed
+
     new_name_weights = dict(current.name_weights)
-    new_name_weights[intent.symbol] = max(
-        0.0,
-        current.name_weights.get(intent.symbol, 0.0) + sign * delta,
-    )
+    new_name_weights[sym] = new_weight
 
     sector_key = sector or "unknown"
     new_sector_weights = dict(current.sector_weights)
     new_sector_weights[sector_key] = max(
         0.0,
-        current.sector_weights.get(sector_key, 0.0) + sign * delta,
+        current.sector_weights.get(sector_key, 0.0) + weight_change,
     )
 
-    return replace(current, name_weights=new_name_weights, sector_weights=new_sector_weights)
+    return replace(
+        current,
+        name_weights=new_name_weights,
+        sector_weights=new_sector_weights,
+        name_exposure_signed=new_name_exposure_signed,
+    )
 
 
 def _apply_fut(
     current: StateSnapshot,
-    sign: float,
+    is_buy: bool,
     order_notional: float,
     mnq_notional_usd: float,
 ) -> StateSnapshot:
-    new_notional = max(0.0, current.futures_notional + sign * order_notional)
+    """Model a FUT fill on the SIGNED net notional (audit C1): adding to a SHORT (a SELL
+    against a net-short book) must INCREASE exposure, not shrink it.  The old code treated
+    the stored *absolute* notional as signed and wrongly netted a SELL down.
+    """
+    order_signed = order_notional if is_buy else -order_notional
+    new_signed = current.futures_notional_signed + order_signed
+    new_notional = abs(new_signed)
 
     if mnq_notional_usd > 0:
         new_contracts = new_notional / mnq_notional_usd
@@ -101,6 +128,7 @@ def _apply_fut(
         current,
         futures_notional=new_notional,
         futures_contracts_overnight=new_contracts,
+        futures_notional_signed=new_signed,
     )
 
 
