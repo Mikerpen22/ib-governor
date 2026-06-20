@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 from ib_async import Future, LimitOrder, Stock, StopOrder
 
 from governor.config import RulesConfig
+from governor.gate.render import render_panels
 from governor.gate.analysis import (
     GateFacts,
     GateVerdict,
@@ -28,7 +29,9 @@ from governor.gate.analysis import (
 )
 from governor.gate.intent import Action, OrderIntent, SecType, build_order
 from governor.live.builder import live_mnq_notional
+from governor.live.history import fetch_daily_bars
 from governor.live.snapshot import _PNL_SENTINEL, _to_float
+from governor.technicals.assess import assess_setup, setup_to_dict
 from governor.model import StateSnapshot
 from governor.rules.engine import evaluate
 from governor.state.json_store import StateFileError
@@ -350,6 +353,11 @@ def analyze_intent(
     contract = qualify(ib, intent)
     order = build_order(intent)
 
+    # 1b. Candidate setup read (fail-soft): one reqHistoricalData on this same socket,
+    # then a pure Stage-2/VCP (equity) or trend/vol/location/momentum (futures) assessment.
+    bars = fetch_daily_bars(ib, contract, config.setup.history_duration)
+    setup = assess_setup(intent.sec_type, intent.action, bars, config.setup)
+
     # 2. What-if margin check. Real ib.whatIfOrder returns [], [OrderState], or OrderState
     # depending on TWS state (e.g. [] when 'Read-Only API' is on) — normalize defensively.
     whatif = ib.whatIfOrder(contract, order)
@@ -392,6 +400,7 @@ def analyze_intent(
         lockout_active=lockout_active,
         sizing=sized,
         buying_power_ok=bp_ok,
+        setup=setup,
     )
     verdict = decide(facts)
 
@@ -427,6 +436,7 @@ def analyze_intent(
         "lockout_active": lockout_active,
         "verdict": verdict.level.value,
         "reasons": list(verdict.reasons),
+        "setup": setup_to_dict(setup),
     }
 
     if intent.stop_loss is not None:
@@ -438,6 +448,10 @@ def analyze_intent(
         preview["risk_usd"] = abs(price - intent.stop_loss) * intent.quantity * mult
     if intent.take_profit is not None:
         preview["take_profit"] = intent.take_profit
+
+    # Rendered confirmation panels (ORDER / RISK / SETUP) — pure, no I/O.
+    # Added after the preview dict is fully built so all keys are present.
+    preview["panels"] = render_panels(preview)
 
     return verdict, preview
 

@@ -9,6 +9,7 @@
 - [4. Daily use - the pre-trade gate](#4-daily-use-the-pre-trade-gate)
 - [5. Daily use - the circuit-breaker](#5-daily-use-the-circuit-breaker)
 - [6. Reading a verdict](#6-reading-a-verdict)
+- [6b. The setup read (📈 SETUP panel)](#6b-the-setup-read--setup-panel)
 - [7. The rules (what trips it)](#7-the-rules-what-trips-it)
 - [8. Going live (arming)](#8-going-live-arming)
 - [9. Troubleshooting](#9-troubleshooting)
@@ -204,6 +205,51 @@ Both halves speak the same language. **The verdict only ever escalates toward ca
 | 🟢 **GO** | Clean on the numbers *and* consistent with your notes (if any). | Confirm if you still want it. (It still needs your tap.) |
 | 🟡 **CAUTION** | A soft line: size over 1.5% NAV, concentration climbing, a WARN rule, or a relevant past mistake in your notes. | Read the reason. Size down, or confirm deliberately. |
 | 🔴 **BLOCK** | A hard line: an active lockout, a HARD rule would trip, or insufficient margin. | Don't. If you truly must, the gate requires an explicit `--override`. |
+
+---
+
+## 6b. The setup read (📈 SETUP panel)
+
+The pre-trade gate automatically fetches daily bars for the symbol and renders a setup-quality panel — 📈 SETUP — alongside the risk panel. This costs one `reqHistoricalData` call on the gate's already-open socket and is fail-soft: if bars aren't available, the panel is absent and the verdict is unaffected.
+
+**What the panel shows:**
+
+*Equities:*
+- **Stage 2 X/7** — Minervini's 7-criterion checklist: price above MA50 / MA150 / MA200, MA stack (50>150>200), MA200 slope rising, 52-week position ≥75%, and range ratio ≥1.3×. Classified as `confirmed` (6–7/7), `candidate` (4–5), or `none` (≤3).
+- **VCP pivot / distance** — the most recent contraction's pivot level, how far price is from it (five bands: `pre_breakout` = price still below the pivot; `actionable` = ≤5% above; `extended` = 5–10% above; `wait` = 10–15% above, let it come back; `too_late` = >15% above), the last contraction grade, and a volume dry-up flag. The boolean `extended` flag (>5% past pivot) is the gate trigger for CAUTION; `distance_band` is the finer-grained descriptive bucket.
+
+*Futures:*
+- **Trend alignment** — price vs the 20/50/200-day MAs on the continuous contract. With-trend ✅, mixed 🟡, counter-trend 🔴.
+- **Vol regime** — ATR percentile over the prior 100 bars. Elevated (>70th pctile) means stops may need widening; 🟡 when elevated.
+- **Location / extension** — distance from the 20-day high/low. At the range extreme (chasing): 🔴.
+- **Momentum** — RSI(14). Overbought on a long or oversold on a short: 🟡.
+
+A poor setup (Stage 2 not confirmed, extended past pivot, counter-trend, chasing, or elevated vol) escalates the verdict to **CAUTION**. It never blocks — only a hard rule or an active lockout can produce a BLOCK.
+
+VCP and Stage-2 are stock-only. For futures, the gate always runs the four-factor read.
+
+**Tuning the setup read via `setup:` in `config/rules.yaml`:**
+
+> Note: the local `config/rules.yaml` is armed and skip-worktree. Edit your local copy directly; do not commit it.
+
+| Key | Default | What it does |
+|-----|---------|--------------|
+| `setup.history_duration` | `"1 Y"` | Duration string passed to `reqHistoricalData` (~252 daily bars) |
+| `setup.min_bars` | `200` | Fewer bars than this → setup marked `available: False` |
+| `setup.equities.stage2_confirmed_min` | `6` | Minimum criteria count (of 7) to classify as `confirmed` |
+| `setup.equities.pivot_extended_pct` | `0.05` | Distance past pivot (5%) → `extended` → CAUTION |
+| `setup.equities.pivot_too_late_pct` | `0.15` | Distance past pivot (15%) → `too_late` |
+| `setup.equities.contraction_loose_pct` | `0.18` | Last contraction retracement > 18% → `too_loose` |
+| `setup.futures.atr_elevated_pctile` | `0.70` | ATR above this percentile → "elevated" vol → CAUTION |
+| `setup.futures.extension_chase_pct` | `0.02` | Within 2% of 20d high/low → "chasing" → CAUTION |
+| `setup.futures.range_lookback` | `20` | Bars to compute the recent high/low for the location factor |
+| `setup.futures.atr_lookback` | `100` | Bars window for the ATR percentile calculation |
+
+**Two known caveats — documented so they're not surprises:**
+
+1. **Flat-vol → "elevated" (futures):** The ATR percentile is computed by counting how many of the prior 100 bars have an ATR ≤ the current bar's ATR. In a dead-flat regime where every bar has the same range, the current bar ties or beats every prior bar — the percentile reads 1.0 (100th) and the panel shows 🟡 "elevated vol," even though there's no actual expansion. This is fail-safe behavior (CAUTION, never BLOCK). If it's noisy on a low-vol instrument, raise `setup.futures.atr_elevated_pctile` (e.g. to `0.80`).
+
+2. **MA200-rising needs ~221 bars:** The "MA200 slope rising" Stage-2 criterion calculates a 200-bar moving average and then checks whether the MA itself has risen over a 20-bar lookback window — so it needs 200 bars for the MA *plus* 20 more to compare the slope endpoints. With the default `history_duration: "1 Y"` (~252 bars) this is comfortably met. For a name with only 200–220 bars of history, the slope criterion will evaluate to `False` even if the trend is clearly up, capping the Stage-2 score at 6/7. Production-moot with the default duration, documented here for the curious.
 
 ---
 

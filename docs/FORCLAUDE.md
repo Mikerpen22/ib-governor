@@ -178,4 +178,36 @@ It's split along the trust boundary. The **deterministic gate** (`src/governor/g
 
 ---
 
-*ib-governor is feature-complete: a deterministic core (rules + engine + catalog), a live daemon (event-driven + briefings + confirm-gated actions), and a pre-trade gate (deterministic facts + optional notes-grounded LLM judgment) — all dry-run-safe until you run the Arming checklist above. Known follow-up: `cli.build_current_snapshot` and `daemon.build` are a justified read-only near-duplicate worth DRYing into one shared `build_snapshot_readonly` helper.*
+*ib-governor is feature-complete: a deterministic core (rules + engine + catalog), a live daemon (event-driven + briefings + confirm-gated actions), a pre-trade gate (deterministic facts + optional notes-grounded LLM judgment), and a setup read that adds entry-quality awareness to the gate — all dry-run-safe until you run the Arming checklist above. Known follow-up: `cli.build_current_snapshot` and `daemon.build` are a justified read-only near-duplicate worth DRYing into one shared `build_snapshot_readonly` helper.*
+
+---
+
+## Phase 6 — Setup Read: The Gate Learns to Look at the Chart
+
+### The gap the gate had
+
+After Plan 5 the pre-trade gate was nearly complete — it knew whether you could *afford* a trade (margin, sizing, concentration, rules) but not whether the entry was any *good*. You could pass through a trade that was inside every risk limit while buying extended into a resistance high, or entering counter-trend in a trending market. The gate was risk-complete but setup-blind.
+
+The fix is the setup read: one more piece of data the gate gathers before it hands you the verdict, quietly, over the same connection it already has open.
+
+### How it works
+
+The gate calls `reqHistoricalData` on the IBKR socket it's already connected to — one request, fail-soft (if the bars don't come back, the setup is marked `available: False` and the gate proceeds without it; it never blocks on missing data). The bars go through a small stack of pure Python:
+
+- **Equities:** Minervini's 7-criterion Stage-2 checklist (MA stack, MA200 slope, 52-week position, range ratio), plus VCP contraction detection (pivot level, distance-from-pivot band, last contraction grade, volume dry-up). The result is `confirmed` (6–7/7), `candidate` (4–5), or `none` (≤3), plus a VCP band: `actionable`, `extended`, or `too_late`.
+
+- **Futures:** a four-factor structural read on the continuous contract — trend alignment (price vs 20/50/200 MAs), volatility regime (ATR percentile over the prior 100 bars), location/extension (distance from the 20-day high/low range), and momentum (RSI/ROC). Counter-trend, chasing, or elevated-vol setups get flagged.
+
+Both paths land in `GateFacts.setup` (a `SetupAssessment` frozen dataclass). `decide()` reads it: if the setup is poor, it escalates the verdict to **CAUTION** — but never to BLOCK, and never downgrades a real BLOCK that a rule or lockout already earned. The setup is a quality signal, not a veto.
+
+### Where the rendering lives
+
+There's a deliberate split at the trust boundary. The gate's Python renders the *factual* panels — 📋 ORDER, 💰 RISK & SIZING, 📈 SETUP — as a pre-formatted string (`panels`) in the JSON response. The analyst skill owns the *judgment* layer: the banner (final verdict after vault escalation), the 🧭 VERDICT paragraph, the 📓 VAULT section, and the confirm line. Python renders what it can prove from the numbers; the LLM reasons over those numbers and the trader's own notes.
+
+The reason for the split: the fact panels are computed from real IBKR bars and are the same no matter who reads them. The verdict can change — your vault might contain a note saying "this name is an exception" or "I've chased this setup twice and lost both times." That's the LLM's job, not the gate's.
+
+### Lessons from this phase
+
+- **Fail-soft is the only option for a brake.** A setup that can't be assessed (TWS gave no bars, symbol has too little history) must *not* block the trade — a risk gate that refuses to let you close a position because it can't read a chart would be a hazard, not a help. The rule: missing data produces an `available: False` assessment and the rest of the gate runs as if setup didn't exist.
+- **The ATR percentile edge case is worth documenting.** In a dead-flat regime where every bar has the same range, the current bar's ATR ranks at the 100th percentile of itself — the percentile reads "elevated" even though there's no actual volatility expansion. It's fail-safe (CAUTION, never BLOCK), but it will fire in quiet markets and the operator should know why. See the HANDBOOK for the tuning knob.
+- **The MA200-rising criterion needs ~221 bars, not 200.** "MA200 rising" means the 200-bar MA itself has a positive slope over a 20-bar window — so you need 200 bars for the MA *plus* 20 more to compare the slope endpoint to its starting point. With the default `history_duration: "1 Y"` (~252 bars) you're fine; only names with exactly 200–220 bars of history cap at 6/7 on this criterion. It's production-moot but worth knowing if you ever see an unexpected `candidate` on a name that looks clean.
