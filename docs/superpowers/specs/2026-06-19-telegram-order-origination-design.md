@@ -33,17 +33,14 @@ existing pre-trade gate.
 
 ## Message routing (`daemon._telegram_loop`, per inbound text)
 
+One brain, not two: the Claude agent is the *only* path that understands an
+order. No deterministic parser.
+
 1. **`CONFIRM <token>`** → try the in-memory `ConfirmTokenGate` first
    (circuit-breaker actions — existing behaviour). No match → run
    `python -m governor.gate submit --token <token>` as a subprocess. This
    enforces both locks and the `_guarded` chokepoint. Relay the result.
-2. **Deterministic fast-path** — `parse_order_command(text)` recognises an
-   exact compact command (`buy/sell qty SYMBOL [fut|stk] [@ price] [stop price]
-   [sl price] [tp price]`). On a match the daemon runs `gate analyze <args>
-   --json` and relays the rendered panels + token. Offline, instant, no model.
-   Returns `None` for anything that isn't this grammar → fall through to (3).
-   Raises `OrderParseError` for order-looking-but-malformed text → usage hint.
-3. **Natural language** → `run_agent(text)` shells `claude -p "<text>"` with:
+2. **Anything else** → `run_agent(text)` shells `claude -p "<text>"` with:
    - `--allowed-tools "Bash(python -m governor.gate analyze:*)" "Read"` plus
      read-only IBKR tools — **never** submit/place,
    - the `/pre-trade-*` skill available,
@@ -52,8 +49,13 @@ existing pre-trade gate.
    The daemon relays the agent's stdout to the chat. Runs as an async subprocess
    with a timeout; fails soft; can never block or arm the brake.
 
-`CONFIRM …` never collides with an order command — it doesn't start with
-`buy`/`sell`, so the parser returns `None` and it is handled by (1).
+**Graceful degradation.** If `telegram_agent.enabled` is false, the `claude`
+CLI is missing, or the agent errors/times out, a non-confirm message gets a
+short, friendly reply ("natural-language ordering is offline; the brake is
+still running") and a logged warning. Confirms still work; the brake is
+unaffected.
+
+`CONFIRM …` is matched in (1) before it ever reaches the agent.
 
 ## BLOCK hardening (deterministic refusal)
 
@@ -88,8 +90,6 @@ secret stored in the daemon process.
 
 ## Components / files
 
-- NEW `src/governor/comms/order_parser.py` — pure deterministic parser:
-  `parse_order_command(text) -> OrderIntent | None`, `OrderParseError`.
 - NEW `src/governor/comms/agent_runner.py` — `run_agent(text, cfg, *, runner=...)`
   building the `claude -p` argv and returning stdout; subprocess seam injected
   for tests.
@@ -107,11 +107,10 @@ secret stored in the daemon process.
 
 ## Testing
 
-- `tests/comms/test_order_parser.py` — every grammar form, defaults, bracket vs
-  stop-entry, stop-limit, malformed → `OrderParseError`, non-order → `None`.
 - `tests/comms/test_agent_runner.py` — argv construction + stdout relay with a
-  fake subprocess runner (no real `claude`, no network).
+  fake subprocess runner (no real `claude`, no network); graceful result when
+  the CLI is absent/disabled.
 - `tests/gate/` — staged store carries the verdict; `gate submit` refuses a
   BLOCK-staged order without `--override`, allows it with.
-- Daemon routing — unit tests with fakes for the three branches.
+- Daemon routing — unit tests with fakes for the two branches + degradation.
 - Suite green offline; the live NL path skips when `claude` is absent.

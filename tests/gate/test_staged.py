@@ -31,12 +31,29 @@ def _store(tmp_path, ttl=TTL, factory=None):
 # ── round-trip ─────────────────────────────────────────────────────────────────
 
 def test_stage_consume_roundtrip(tmp_path):
-    """stage → consume returns the exact intent dict."""
+    """stage → consume returns a record carrying the exact intent dict."""
     store = _store(tmp_path, factory=_counter_factory())
     intent = {"symbol": "AAPL", "action": "BUY", "qty": 10}
     token = store.stage(intent, T0)
     result = store.consume(token, T0)
-    assert result == intent
+    assert result["intent"] == intent
+
+
+def test_consume_carries_verdict(tmp_path):
+    """A verdict passed at stage time is returned by consume (for BLOCK hardening)."""
+    store = _store(tmp_path, factory=_counter_factory())
+    intent = {"symbol": "ORCL", "action": "BUY", "qty": 5}
+    token = store.stage(intent, T0, verdict="BLOCK")
+    result = store.consume(token, T0)
+    assert result["intent"] == intent
+    assert result["verdict"] == "BLOCK"
+
+
+def test_verdict_defaults_to_none(tmp_path):
+    """stage without a verdict → consume returns verdict None (back-compat callers)."""
+    store = _store(tmp_path, factory=_counter_factory())
+    token = store.stage({"symbol": "AAPL"}, T0)
+    assert store.consume(token, T0)["verdict"] is None
 
 
 # ── single-use ─────────────────────────────────────────────────────────────────
@@ -106,7 +123,7 @@ def test_persistence_across_instances(tmp_path):
     # Fresh instance — no shared in-memory state
     store2 = StagedOrderStore(path, ttl_seconds=TTL)
     result = store2.consume(token, T0)
-    assert result == intent
+    assert result["intent"] == intent
 
 
 # ── file permissions ───────────────────────────────────────────────────────────
@@ -132,8 +149,8 @@ def test_two_tokens_coexist(tmp_path):
     tok2 = store.stage(intent2, T0)
     assert tok1 != tok2
     # Both are retrievable independently
-    assert store.consume(tok1, T0) == intent1
-    assert store.consume(tok2, T0) == intent2
+    assert store.consume(tok1, T0)["intent"] == intent1
+    assert store.consume(tok2, T0)["intent"] == intent2
 
 
 def test_two_tokens_independent_single_use(tmp_path):
@@ -207,8 +224,8 @@ def test_token_collision_does_not_overwrite_first_entry(tmp_path):
     assert tok1 == "DUP"
     assert tok2 == "UNIQUE"
     # Both independently consumable — first entry not overwritten
-    assert store.consume("DUP", T0) == intent1
-    assert store.consume("UNIQUE", T0) == intent2
+    assert store.consume("DUP", T0)["intent"] == intent1
+    assert store.consume("UNIQUE", T0)["intent"] == intent2
 
 
 # ── naive datetime rejection ───────────────────────────────────────────────────

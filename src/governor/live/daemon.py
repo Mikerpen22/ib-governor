@@ -9,7 +9,9 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import logging
+import re
 import secrets
+import sys
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -17,7 +19,9 @@ import httpx
 from ..actions.executor import ActionExecutor
 from ..actions.lockout import LockoutStore
 from ..actions.tokens import ConfirmTokenGate
+from ..comms.agent_runner import run_agent
 from ..comms.notify import notify as macos_notify
+from ..comms.proc import run_capture
 from ..comms.telegram import TelegramClient
 from ..config import RulesConfig, load_config, load_env_file, telegram_from_env
 from ..model import ActionType, Severity, StateSnapshot, Trip
@@ -35,6 +39,9 @@ log = logging.getLogger("governor.daemon")
 
 # IB status codes that are informational, not errors (data farm connect/disconnect).
 _BENIGN_IB_CODES = {2104, 2106, 2107, 2108, 2119, 2158}
+
+# A staged-order confirm token: uppercase hex from StagedOrderStore's factory.
+_TOKEN_RE = re.compile(r"^[A-Z0-9]{6,}$")
 
 
 def next_briefing_dt(now: dt.datetime, briefing_times_et: list[str]) -> dt.datetime:
@@ -59,6 +66,28 @@ def is_stale(last, now, max_age: float) -> bool:
     if last is None:
         return False
     return (now - last).total_seconds() > max_age
+
+
+def _confirm_token(text: str) -> str | None:
+    """Extract the token from a `CONFIRM <token>` message; None if not that shape.
+
+    The token must look like a real staged-order token (uppercase hex, the
+    StagedOrderStore factory shape) so a natural-language message that merely
+    starts with "confirm" (e.g. "confirm that ORCL is a buy") is NOT mistaken for
+    a submit and is routed to the agent instead.
+    """
+    words = text.split()
+    if len(words) >= 2 and words[0].lower() == "confirm" and _TOKEN_RE.match(words[1]):
+        return words[1]
+    return None
+
+
+async def _gate_submit(token: str, timeout: float) -> tuple[int, str, str]:
+    """Run `python -m governor.gate submit --token <token>` (never --override) as a
+    subprocess. This is the order-write path: the gate enforces both locks, the
+    _guarded chokepoint, and the BLOCK refusal. Module-level seam for tests."""
+    argv = [sys.executable, "-m", "governor.gate", "submit", "--token", token]
+    return await run_capture(argv, timeout)
 
 
 class BrakeDaemon:
@@ -160,13 +189,53 @@ class BrakeDaemon:
             log.info("[%s] OK nav=%.0f fut_pnl=%.0f trades=%d", reason, snap.nav,
                      snap.futures_realized_pnl_today, snap.futures_trade_count_today)
 
-    def on_confirm(self, reply_text: str) -> None:
+    def on_confirm(self, reply_text: str) -> bool:
+        """Confirm a staged circuit-breaker ACTION (in-memory token).
+
+        Returns True iff a live token matched and the action was dispatched —
+        so the message router knows whether to keep looking (order / NL).
+        """
         pending = self.tokens.verify(reply_text, self._now())
         if pending is None:
-            return
+            return False
         trip = pending.payload
         self.alert(f"✅ confirmed: {trip.action.value} — executing.")
         self._execute(trip.action)
+        return True
+
+    async def handle_telegram_text(self, text: str) -> None:
+        """Route one inbound Telegram message through the three branches:
+
+        1. a staged circuit-breaker ACTION confirm (in-memory token),
+        2. an ORDER confirm (`CONFIRM <token>` -> gate submit chokepoint),
+        3. a natural-language order request (-> headless `claude -p` agent).
+
+        Order placement never happens here — it flows through `gate submit`,
+        which enforces both locks, the _guarded chokepoint, and the BLOCK
+        refusal. The agent only proposes + stages.
+        """
+        if self.on_confirm(text):
+            return
+        token = _confirm_token(text)
+        if token is not None:
+            self.alert(await self._submit_staged_order(token))
+            return
+        if not self.config.telegram_agent.enabled:
+            log.info("telegram_agent disabled — ignoring non-confirm message")
+            return
+        self.alert(await run_agent(text, self.config.telegram_agent))
+
+    async def _submit_staged_order(self, token: str) -> str:
+        """Place a previously staged order via the gate submit chokepoint, and
+        return a chat-ready result line. Never raises (failure -> a message)."""
+        try:
+            rc, out, err = await _gate_submit(token, self.config.telegram_agent.timeout_seconds)
+        except Exception as exc:  # noqa: BLE001 — a bad submit must not crash the poll loop
+            log.error("gate submit failed: %s", exc)
+            return f"⚠️ submit failed: {exc}"
+        if rc == 0:
+            return out.strip() or "✅ submitted"
+        return f"⚠️ {err.strip() or 'submit rejected'}"
 
     def _execute(self, action: ActionType) -> None:
         now = self._now()
@@ -233,11 +302,24 @@ class BrakeDaemon:
             log.warning("Telegram not configured (set TELEGRAM_BOT_TOKEN/CHAT_ID) — "
                         "alerts go to logs + macOS only; confirmations unavailable.")
             return
+        # Drain any pre-startup backlog WITHOUT handling it: a `CONFIRM <token>`
+        # the operator sent before a restart could otherwise auto-submit a staged
+        # order that survived on disk — "nothing auto-fires" must hold across
+        # restarts too.
+        try:
+            backlog, self._tg_offset = await self.telegram.poll(self._tg_offset)
+            if backlog:
+                log.warning("telegram: skipped %d backlog message(s) on startup", len(backlog))
+        except Exception as exc:  # noqa: BLE001
+            log.error("telegram backlog drain failed: %s", exc)
         while True:
             try:
                 texts, self._tg_offset = await self.telegram.poll(self._tg_offset)
                 for text in texts:
-                    self.on_confirm(text)
+                    try:
+                        await self.handle_telegram_text(text)
+                    except Exception as exc:  # noqa: BLE001 — one bad message must not drop the rest
+                        log.error("handling telegram message failed: %s", exc)
             except Exception as exc:  # noqa: BLE001
                 log.error("telegram poll error: %s", exc)
                 await asyncio.sleep(5)

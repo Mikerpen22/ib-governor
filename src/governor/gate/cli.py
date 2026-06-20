@@ -208,6 +208,9 @@ def _build_parser() -> argparse.ArgumentParser:
     # --- submit subcommand ---
     sub_cmd = sub.add_parser("submit", help="Submit a previously staged order by token.")
     sub_cmd.add_argument("--token", required=True, help="Staging token from analyze")
+    sub_cmd.add_argument("--override", action="store_true",
+                         help="Place even a BLOCK-staged order (deliberate override; "
+                              "the Telegram confirm path never passes this)")
     sub_cmd.add_argument("--json", dest="json_output", action="store_true",
                          help="Print JSON output")
 
@@ -283,7 +286,10 @@ def _handle_analyze(args, config: RulesConfig) -> int:
             _staged_path(config),
             ttl_seconds=config.live.confirm_ttl_seconds,
         )
-        token = store.stage(intent.model_dump(), now)
+        # Persist the verdict alongside the intent so a later, separate `submit`
+        # process can refuse a BLOCK-staged order without an explicit override —
+        # the brake guarantee does not depend on the caller remembering it.
+        token = store.stage(intent.model_dump(), now, verdict=verdict.level.value)
 
     finally:
         conn.disconnect()
@@ -374,11 +380,25 @@ def _handle_submit(args, config: RulesConfig) -> int:
         _staged_path(config),
         ttl_seconds=config.live.confirm_ttl_seconds,
     )
-    intent_dict = store.consume(args.token, now)
-    if intent_dict is None:
+    record = store.consume(args.token, now)
+    if record is None:
         print(
             f"ERROR: token {args.token!r} is invalid, already used, or expired — "
             "re-run 'analyze' to get a fresh token.",
+            file=sys.stderr,
+        )
+        return 1
+
+    intent_dict = record["intent"]
+    staged_verdict = record.get("verdict")
+
+    # BLOCK hardening: a BLOCK-staged order is refused unless --override is given.
+    # This is the deterministic guarantee behind "the phone can't punch through
+    # the brake" — the daemon's confirm path never passes --override.
+    if staged_verdict == Verdict.BLOCK.value and not args.override:
+        print(
+            "ERROR: this order was BLOCKED by the gate — refusing to place it. "
+            "Re-run 'analyze' and clear the block, or pass --override to force.",
             file=sys.stderr,
         )
         return 1

@@ -58,8 +58,13 @@ class StagedOrderStore:
 
     # ── public API ─────────────────────────────────────────────────────────────
 
-    def stage(self, intent: dict, now: datetime) -> str:
-        """Persist *intent* under a fresh token and return the token.
+    def stage(self, intent: dict, now: datetime, verdict: str | None = None) -> str:
+        """Persist *intent* (and its gate *verdict*) under a fresh token; return it.
+
+        `verdict` is the gate verdict at stage time (e.g. "GO"/"CAUTION"/"BLOCK").
+        It is persisted so a later, separate `consume`/`submit` process can refuse
+        to place a BLOCK-staged order without an explicit override — the safety
+        guarantee does not depend on the caller remembering the verdict.
 
         Prunes already-expired entries while writing.
         The write is durable (fsync) because this is safety-critical state.
@@ -76,6 +81,7 @@ class StagedOrderStore:
             **data,
             token: {
                 "intent": intent,
+                "verdict": verdict,
                 "expires": expires.isoformat(),
             },
         }
@@ -83,10 +89,11 @@ class StagedOrderStore:
         return token
 
     def consume(self, token: str, now: datetime) -> dict | None:
-        """Return the staged intent for *token* and remove it (single-use).
+        """Return the staged record for *token* and remove it (single-use).
 
-        Returns None if the token is unknown, already consumed, or expired.
-        Prunes expired entries on the way through.
+        The record is `{"intent": <dict>, "verdict": <str|None>}`. Returns None
+        if the token is unknown, already consumed, or expired. Prunes expired
+        entries on the way through.
         """
         if now.tzinfo is None:
             raise ValueError("now must be timezone-aware (e.g. datetime.now(timezone.utc))")
@@ -104,4 +111,4 @@ class StagedOrderStore:
         # Pop the entry (single-use enforcement via removal)
         remaining = {k: v for k, v in data.items() if k != token}
         self._save(remaining)
-        return entry["intent"]
+        return {"intent": entry["intent"], "verdict": entry.get("verdict")}

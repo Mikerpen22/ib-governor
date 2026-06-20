@@ -194,6 +194,44 @@ What you get / need to know:
 - **TWS must be up** at that time; if it's down the run says so and writes nothing (fails loud — never fabricates).
 - **Logs:** `logs/daily-summary.{out,err}.log`. To stop: `launchctl unload ~/Library/LaunchAgents/com.ib-governor.daily-summary.plist`.
 
+### Order from Telegram (natural language)
+
+While the daemon is running you can **start an order from the chat** — in plain
+language. The daemon hands any non-confirm message to a headless `claude -p`
+agent that loads your `/pre-trade-*` skill, runs the **read-only** gate analysis,
+and replies with the decision + a confirm token. Nothing is placed until you tap
+`CONFIRM`.
+
+```mermaid
+flowchart TD
+    MSG["you text the bot:  'buy me 100 oracle here?'"] --> AGENT["headless claude -p<br/>(/pre-trade skill, analyze-only tools)"]
+    AGENT --> PANEL["replies: interpreted order + verdict + token"]
+    PANEL --> REPLY["you reply:  CONFIRM &lt;token&gt;"]
+    REPLY --> SUBMIT["gate submit (the one write path; locks + BLOCK refusal honored)"]
+```
+
+What to know:
+
+- **One brain, reused.** The agent *is* the natural-language parser — there is no
+  separate grammar. Say it however you like ("grab 2 micro nasdaq at 21000, stop
+  20900"); the agent interprets, then runs `python -m governor.gate analyze`.
+- **The agent can never place an order.** It is launched with
+  `--allowed-tools "Bash(python -m governor.gate analyze:*)" "Read"` — the gate's
+  *analyze* subcommand only. Placement happens solely when you reply `CONFIRM`,
+  which the daemon routes through `gate submit` (the single guarded chokepoint).
+- **BLOCK can't be overridden from the phone.** A BLOCK-staged order is refused at
+  submit time unless `--override` is passed, and the chat path never passes it.
+- **Locks still rule.** Under `dry_run`/`readonly` the order is analyzed and
+  replied but never sent. Placement needs `live.dry_run: false` **and**
+  `live.readonly: false` (see §8).
+- **Auth = your existing Claude Code login.** No new API key. The daemon shells
+  the `claude` CLI exactly like the daily-summary does; under launchd that login
+  must be available to the daemon's environment.
+- **Graceful when offline.** If `claude` isn't on PATH the bot replies that
+  natural-language ordering is unavailable; the brake keeps running. To turn the
+  path off entirely, set `telegram_agent.enabled: false` in `config/rules.yaml`
+  (it ships enabled; `claude_bin` and `timeout_seconds` are also tunable there).
+
 ---
 
 ## 6. Reading a verdict
@@ -316,6 +354,7 @@ PYTHONPATH=src .venv/bin/python -m governor.gate analyze short 2 MNQ --sec-type 
 
 # Submit a staged order (the only write path; needs the token from analyze + dry_run honored)
 PYTHONPATH=src .venv/bin/python -m governor.gate submit --token 4F2A9C1B
+# (a BLOCK-staged order is refused here unless you deliberately add --override)
 
 # Run the always-on circuit-breaker daemon
 PYTHONPATH=src .venv/bin/python -m governor.live.daemon
@@ -327,4 +366,6 @@ PYTHONPATH=src .venv/bin/python -m governor.rules.catalog   # writes docs/RULES.
 .venv/bin/python -m pytest -q
 ```
 
-In Telegram, the only thing you ever send back is: **`CONFIRM <token>`**.
+In Telegram you can **start** an order in plain language ("buy me 100 oracle
+here?") — the daemon's headless agent analyzes it and replies a token — and to
+place it you send back: **`CONFIRM <token>`**.
