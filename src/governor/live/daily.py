@@ -149,33 +149,12 @@ def _fill_date_et(fill) -> dt.date:
     return dt.date.min
 
 
-def collect_day_data(ib, config: RulesConfig, now: dt.datetime) -> dict:
-    """Read-only snapshot of the trading day for the summary skill.
+def _et_date(now: dt.datetime) -> dt.date:
+    return (now.astimezone(ET).date() if now.tzinfo
+            else now.replace(tzinfo=ET).astimezone(ET).date())
 
-    All returned values are JSON-serializable (no datetimes — use ISO strings).
-    """
-    today = (
-        now.astimezone(ET).date() if now.tzinfo else now.replace(tzinfo=ET).astimezone(ET).date()
-    )
 
-    account_values = ib.accountValues()
-    portfolio_items = ib.portfolio()
-    all_fills = ib.fills()
-
-    # --- Account metrics ---------------------------------------------------
-    nav, margin_cushion, gross_leverage = account_metrics(account_values)
-
-    # --- Today's fills only -----------------------------------------------
-    today_fills = [f for f in all_fills if _fill_date_et(f) == today]
-
-    # --- Realized P&L today (sentinel-filtered) ----------------------------
-    realized_pnl_today = sum(
-        _to_float(getattr(f.commissionReport, "realizedPNL", 0.0))
-        for f in today_fills
-        if not _is_sentinel_pnl(_to_float(getattr(f.commissionReport, "realizedPNL", 0.0)))
-    )
-
-    # --- Fills list --------------------------------------------------------
+def _serialize_fills(today_fills) -> list[dict]:
     fills: list[dict] = []
     for f in today_fills:
         pnl = _to_float(getattr(f.commissionReport, "realizedPNL", 0.0))
@@ -196,8 +175,10 @@ def collect_day_data(ib, config: RulesConfig, now: dt.datetime) -> dict:
             "realized_pnl": pnl if not _is_sentinel_pnl(pnl) else 0.0,
             "time": time_str,
         })
+    return fills
 
-    # --- Positions ---------------------------------------------------------
+
+def _serialize_positions(portfolio_items) -> list[dict]:
     positions: list[dict] = []
     for it in portfolio_items:
         sym = contract_symbol(it.contract) or getattr(it.contract, "symbol", "")
@@ -212,13 +193,53 @@ def collect_day_data(ib, config: RulesConfig, now: dt.datetime) -> dict:
             "market_value": mv,
             "unrealized_pnl": upnl,
         })
+    return positions
+
+
+def collect_account_view(ib, config: RulesConfig, now: dt.datetime) -> dict:
+    """The connection-CHEAP subset of collect_day_data: account metrics + today's
+    fills + positions + realized P&L, with NO market backdrop (collect_day_data's
+    only slow part — it does historical-data calls). ib_async streams account
+    values / portfolio / fills, so an already-connected client answers this in well
+    under a second. Powers the daemon's natural-language quick-answer fast-path.
+
+    Returns a JSON-serializable dict: date, nav, margin_cushion, gross_leverage,
+    realized_pnl_today, fills, positions.
+    """
+    today = _et_date(now)
+    account_values = ib.accountValues()
+    nav, margin_cushion, gross_leverage = account_metrics(account_values)
+    today_fills = [f for f in ib.fills() if _fill_date_et(f) == today]
+    realized_pnl_today = sum(
+        _to_float(getattr(f.commissionReport, "realizedPNL", 0.0))
+        for f in today_fills
+        if not _is_sentinel_pnl(_to_float(getattr(f.commissionReport, "realizedPNL", 0.0)))
+    )
+    return {
+        "date": today.isoformat(),
+        "nav": nav,
+        "margin_cushion": margin_cushion,
+        "gross_leverage": gross_leverage,
+        "realized_pnl_today": realized_pnl_today,
+        "fills": _serialize_fills(today_fills),
+        "positions": _serialize_positions(ib.portfolio()),
+    }
+
+
+def collect_day_data(ib, config: RulesConfig, now: dt.datetime) -> dict:
+    """Read-only snapshot of the trading day for the summary skill: the cheap
+    account view PLUS rule trips and the (slower) broad-market backdrop.
+
+    All returned values are JSON-serializable (no datetimes — use ISO strings).
+    """
+    view = collect_account_view(ib, config, now)
 
     # --- Rule trips (read-only, sector={}) ---------------------------------
     snapshot = build_snapshot(
         now=now,
-        account_values=account_values,
-        portfolio_items=portfolio_items,
-        fills=all_fills,
+        account_values=ib.accountValues(),
+        portfolio_items=ib.portfolio(),
+        fills=ib.fills(),
         cfg=config.live,
         sector_by_symbol={},
     )
@@ -236,13 +257,7 @@ def collect_day_data(ib, config: RulesConfig, now: dt.datetime) -> dict:
     backdrop = collect_market_backdrop(ib)
 
     return {
-        "date": today.isoformat(),
-        "nav": nav,
-        "margin_cushion": margin_cushion,
-        "gross_leverage": gross_leverage,
-        "realized_pnl_today": realized_pnl_today,
-        "fills": fills,
-        "positions": positions,
+        **view,
         "trips": trips,
         "indices": backdrop["indices"],
         "vix": backdrop["vix"],

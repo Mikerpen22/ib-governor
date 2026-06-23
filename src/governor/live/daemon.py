@@ -21,6 +21,7 @@ from ..actions.executor import ActionExecutor
 from ..actions.lockout import LockoutStore
 from ..actions.tokens import ConfirmTokenGate
 from ..comms.agent_runner import run_agent
+from ..comms.ask import Intent, classify_message, quick_answer
 from ..comms.format import b, code, esc, header, i, joinsections, section, strip_tags
 from ..comms.notify import notify as macos_notify
 from ..comms.proc import run_capture
@@ -34,6 +35,7 @@ from ..state.json_store import StateFileError
 from ..state.trade_log import WeeklyTradeLog
 from .builder import build_live_snapshot
 from .connection import BrakeConnection
+from .daily import collect_account_view
 from .sector import SectorResolver
 from .snapshot import contract_symbol, is_sec_type
 
@@ -262,6 +264,18 @@ class BrakeDaemon:
         self.handle(trips, snap, reason)
         return trips
 
+    def _account_view(self) -> dict | None:
+        """The connection-cheap account view (no market backdrop) for the
+        quick-answer fast-path. None when we can't read it (disconnected / error)
+        so the caller falls through to the slower ask agent — never raises."""
+        if not self.ib.isConnected():
+            return None
+        try:
+            return collect_account_view(self.ib, self.config, self._now())
+        except Exception as exc:  # noqa: BLE001 — a read failure must not crash the loop
+            log.error("account view failed: %s", exc)
+            return None
+
     def alert(self, text: str, *, action_token: str | None = None) -> None:
         """Loud brake notification: telegram (HTML) + macOS banner + WARNING log.
         `text` is HTML; the log + banner get the tags stripped so they stay
@@ -384,6 +398,17 @@ class BrakeDaemon:
         if token is not None:
             await self._reply(await self._submit_staged_order(token))
             return
+        # Read-only ask lane: a recognized factual question (leverage / P&L /
+        # positions / today) is answered instantly off the daemon's already-live
+        # connection — no subprocess, no new socket. Deterministic + read-only, so
+        # it works even when the order agent is disabled. Misses fall through.
+        if classify_message(text) is Intent.ASK:
+            view = self._account_view()
+            if view is not None:
+                answer = quick_answer(text, view)
+                if answer is not None:
+                    await self._reply(answer)
+                    return
         if not self.config.telegram_agent.enabled:
             log.info("telegram_agent disabled — ignoring non-confirm message")
             return

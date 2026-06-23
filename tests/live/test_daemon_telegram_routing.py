@@ -315,3 +315,83 @@ async def test_disabled_agent_ignores_natural_language(tmp_path, monkeypatch):
 
     assert called == []          # agent not invoked
     assert d._replies == []      # stays quiet
+
+
+# --- read-only ask lane: deterministic fast-path off the live connection ------
+
+_FAST_VIEW = {"nav": 250_000.0, "gross_leverage": 1.80, "margin_cushion": 0.45,
+              "realized_pnl_today": 0.0, "fills": [], "positions": []}
+
+
+async def test_ask_question_answered_by_quick_path_without_agent(tmp_path, monkeypatch):
+    """A recognized factual question is answered instantly from the account view —
+    the agent subprocess is never spawned."""
+    agent_calls = []
+
+    async def _fake_agent(text, cfg):
+        agent_calls.append(text)
+        return "should not run"
+
+    monkeypatch.setattr(daemon_mod, "run_agent", _fake_agent)
+    d = _daemon(tmp_path)
+    d._account_view = lambda: _FAST_VIEW
+    await d.handle_telegram_text("what's my leverage?")
+
+    assert agent_calls == []                          # answered without the agent
+    assert any("1.80×" in r for r in d._replies)
+
+
+async def test_order_message_skips_quick_path_even_with_a_view(tmp_path, monkeypatch):
+    seen = []
+
+    async def _fake_agent(text, cfg):
+        seen.append(text)
+        return "GO — BUY 100 ORCL. Reply CONFIRM A1B2C3D4E5F60789"
+
+    monkeypatch.setattr(daemon_mod, "run_agent", _fake_agent)
+    d = _daemon(tmp_path)
+    d._account_view = lambda: _FAST_VIEW
+    await d.handle_telegram_text("buy 100 ORCL")      # classified ORDER
+
+    assert seen == ["buy 100 ORCL"]                   # routed to the agent, not quick-answer
+
+
+async def test_unrecognized_ask_falls_through_to_agent(tmp_path, monkeypatch):
+    seen = []
+
+    async def _fake_agent(text, cfg):
+        seen.append(text)
+        return "hmm"
+
+    monkeypatch.setattr(daemon_mod, "run_agent", _fake_agent)
+    d = _daemon(tmp_path)
+    d._account_view = lambda: _FAST_VIEW
+    await d.handle_telegram_text("what do you think about gold")
+
+    assert seen == ["what do you think about gold"]   # no quick pattern → agent
+
+
+async def test_quick_path_works_even_with_agent_disabled(tmp_path):
+    """The deterministic read-only answer doesn't depend on the order agent flag."""
+    cfg = RulesConfig.model_validate({"telegram_agent": {"enabled": False}})
+    d = _daemon(tmp_path, config=cfg)
+    d._account_view = lambda: _FAST_VIEW
+    await d.handle_telegram_text("positions?")
+
+    assert any("Book" in r for r in d._replies)       # answered despite agent disabled
+
+
+async def test_quick_path_skipped_when_view_unavailable(tmp_path, monkeypatch):
+    """Disconnected / unreadable account view → fall through to the agent, no crash."""
+    seen = []
+
+    async def _fake_agent(text, cfg):
+        seen.append(text)
+        return "ok"
+
+    monkeypatch.setattr(daemon_mod, "run_agent", _fake_agent)
+    d = _daemon(tmp_path)
+    d._account_view = lambda: None                    # e.g. not connected
+    await d.handle_telegram_text("leverage?")
+
+    assert seen == ["leverage?"]                      # no view → agent fallback
