@@ -237,6 +237,31 @@ What to know:
 - **Locks still rule.** Under `dry_run`/`readonly` the order is analyzed and
   replied but never sent. Placement needs `live.dry_run: false` **and**
   `live.readonly: false` (see §8).
+
+### Ask the bot anything (read-only)
+
+The chat isn't only for orders — you can **ask questions**, and they never touch
+your account. There are two speeds:
+
+- **Instant answers (sub-second).** Common factual questions are answered
+  straight off the daemon's already-live connection — no subprocess, no new TWS
+  socket. Try *"what's my leverage?"*, *"how am I doing?"*, *"show my
+  positions"*, *"what did I trade today?"*, *"margin cushion?"*. These work even
+  if natural-language ordering is turned off.
+- **Tap shortcuts.** The bot registers a `/` command menu, so
+  `/leverage` · `/pnl` · `/positions` · `/today` · `/cushion` are one tap away.
+- **Deeper questions (~a minute).** Anything open-ended — *"analyze my book"*,
+  *"how does NVDA look?"*, *"any news on oracle?"* — goes to a **read-only ask
+  agent** (a second headless `claude -p` lane). It can read today's account data
+  (`governor.live.daily --json`), a symbol's setup
+  (`python -m governor.technicals <SYMBOL> --json` — a read that **stages
+  nothing**, unlike `gate analyze`), your research vault (`$VAULT_DIR`), and the
+  web for news. It has **no trading authority** — it answers, it never places or
+  stages.
+
+The daemon decides order-vs-question with a cheap heuristic; a misread is
+harmless because **both lanes are read-only** (the order lane only *stages*; you
+still confirm). When in doubt, end with a `?` and it's treated as a question.
 - **Auth = your existing Claude Code login.** No new API key. The daemon shells
   the `claude` CLI exactly like the daily-summary does; under launchd that login
   must be available to the daemon's environment.

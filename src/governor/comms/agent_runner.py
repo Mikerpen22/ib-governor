@@ -70,6 +70,28 @@ _SYSTEM_PROMPT = (
     "You cannot place orders yourself; only the user's CONFIRM does that."
 )
 
+# The ask lane is READ-ONLY: it answers questions, it never proposes/stages an
+# order. It gets the web tools (news) on top of Bash/Read; the same deny rules +
+# the dry-run sandbox still apply as defense-in-depth.
+_ASK_ALLOW_TOOLS = ["Bash", "Read", "WebSearch", "WebFetch"]
+
+_ASK_SYSTEM_PROMPT = (
+    "You answer the operator's READ-ONLY questions about their IBKR account and "
+    "the market, for a Telegram trading-discipline bot. You can:\n"
+    "- run `python -m governor.live.daily --json` for today's positions, P&L, "
+    "leverage and margin cushion;\n"
+    "- run `python -m governor.technicals <SYMBOL> [--sec-type stk|fut] --json` "
+    "for a read-only Stage-2/VCP (equity) or trend/vol/location/momentum (futures) "
+    "setup read of a symbol;\n"
+    "- read the operator's research vault under $VAULT_DIR (when set) for prior "
+    "theses and recaps;\n"
+    "- search the web for current news and headlines.\n"
+    "NEVER place or stage an order: you have no trading authority and must NOT run "
+    "`gate analyze` or `gate submit` (they stage/place). Answer the question only. "
+    "Reply concise and skimmable in Telegram HTML (<b>, <i>, <code>) — no markdown, "
+    "no separator rules."
+)
+
 # A runner takes the argv + a timeout and returns (returncode, stdout, stderr).
 Runner = Callable[[list[str], float], Awaitable[tuple[int, str, str]]]
 
@@ -98,15 +120,26 @@ _FAILED_MSG = (
 )
 _EMPTY_MSG = "🤔 I didn't catch an order in that. Try e.g. 'buy 10 oracle', or send /help."
 
+# Ask-lane variants of the graceful gates.
+_ASK_DISABLED_MSG = (
+    "⚠️ Q&A by text is turned off right now. Your safety brake is still running normally."
+)
+_ASK_UNAVAILABLE_MSG = (
+    "⚠️ Q&A is temporarily unavailable. Your safety brake is still running normally."
+)
+_ASK_FAILED_MSG = (
+    "😕 I couldn't dig into that one — mind asking again? (Your account is untouched.)"
+)
+_ASK_EMPTY_MSG = (
+    "🤔 Not sure how to answer that. Try your positions, leverage, P&L, or a symbol's setup."
+)
 
-def build_claude_argv(text: str, cfg) -> list[str]:
-    """Build the headless `claude -p` argv for analysing *text*. Pure.
 
-    Confinement: bare `Bash`/`Read` allow (the form that runs headless), strict
-    MCP isolation (`place_order` MCP can't load), and deny rules as defense-in-
-    depth. The load-bearing guarantee is NOT here — it's the GOVERNOR_AGENT_SANDBOX
-    dry-run env applied by the runner (see _agent_env).
-    """
+def _build_argv(text: str, cfg, allow_tools: list[str], system_prompt: str) -> list[str]:
+    """The shared headless `claude -p` argv. Confinement: bare allow-list (the form
+    that runs headless), strict MCP isolation (`place_order` MCP can't load), deny
+    rules as defense-in-depth. The load-bearing guarantee is NOT here — it's the
+    GOVERNOR_AGENT_SANDBOX dry-run env applied by the runner (see _agent_env)."""
     return [
         cfg.claude_bin,
         "-p",
@@ -117,12 +150,43 @@ def build_claude_argv(text: str, cfg) -> list[str]:
         "--mcp-config",
         '{"mcpServers": {}}',
         "--allowed-tools",
-        *_ALLOW_TOOLS,
+        *allow_tools,
         "--disallowed-tools",
         *_DENY_TOOLS,
         "--append-system-prompt",
-        _SYSTEM_PROMPT,
+        system_prompt,
     ]
+
+
+def build_claude_argv(text: str, cfg) -> list[str]:
+    """Argv for the ORDER agent (propose + stage, read-only analysis tools)."""
+    return _build_argv(text, cfg, _ALLOW_TOOLS, _SYSTEM_PROMPT)
+
+
+def build_ask_argv(text: str, cfg) -> list[str]:
+    """Argv for the read-only ASK agent (Q&A; web/news tools, never stages)."""
+    return _build_argv(text, cfg, _ASK_ALLOW_TOOLS, _ASK_SYSTEM_PROMPT)
+
+
+async def _invoke_claude(argv: list[str], cfg, *, runner: Runner,
+                         which: Callable[[str], str | None],
+                         disabled: str, unavailable: str, failed: str, empty: str) -> str:
+    """Shared run/gate logic for the order + ask agents. Never raises."""
+    if not cfg.enabled:
+        return disabled
+    if which(cfg.claude_bin) is None:
+        log.warning("telegram_agent: %r not found on PATH — disabled", cfg.claude_bin)
+        return unavailable
+    try:
+        rc, stdout, stderr = await runner(argv, cfg.timeout_seconds)
+    except Exception as exc:  # noqa: BLE001 — a flaky agent must never crash the brake
+        log.error("telegram_agent run failed: %s", exc)
+        return failed
+    if rc != 0:
+        log.error("telegram_agent exited %s: %s", rc, stderr.strip()[:500])
+        return failed
+    reply = stdout.strip()
+    return reply if reply else empty
 
 
 async def run_agent(
@@ -132,23 +196,22 @@ async def run_agent(
     runner: Runner = _default_runner,
     which: Callable[[str], str | None] = shutil.which,
 ) -> str:
-    """Run the headless agent on *text*; return a chat-ready reply. Never raises."""
-    if not cfg.enabled:
-        return _DISABLED_MSG
-    if which(cfg.claude_bin) is None:
-        log.warning("telegram_agent: %r not found on PATH — NL ordering disabled", cfg.claude_bin)
-        return _UNAVAILABLE_MSG
+    """Run the headless ORDER agent on *text*; return a chat-ready reply. Never raises."""
+    return await _invoke_claude(
+        build_claude_argv(text, cfg), cfg, runner=runner, which=which,
+        disabled=_DISABLED_MSG, unavailable=_UNAVAILABLE_MSG,
+        failed=_FAILED_MSG, empty=_EMPTY_MSG)
 
-    argv = build_claude_argv(text, cfg)
-    try:
-        rc, stdout, stderr = await runner(argv, cfg.timeout_seconds)
-    except Exception as exc:  # noqa: BLE001 — a flaky agent must never crash the brake
-        log.error("telegram_agent run failed: %s", exc)
-        return _FAILED_MSG
 
-    if rc != 0:
-        log.error("telegram_agent exited %s: %s", rc, stderr.strip()[:500])
-        return _FAILED_MSG
-
-    reply = stdout.strip()
-    return reply if reply else _EMPTY_MSG
+async def run_ask_agent(
+    text: str,
+    cfg,
+    *,
+    runner: Runner = _default_runner,
+    which: Callable[[str], str | None] = shutil.which,
+) -> str:
+    """Run the read-only ASK agent on *text*; return a chat-ready reply. Never raises."""
+    return await _invoke_claude(
+        build_ask_argv(text, cfg), cfg, runner=runner, which=which,
+        disabled=_ASK_DISABLED_MSG, unavailable=_ASK_UNAVAILABLE_MSG,
+        failed=_ASK_FAILED_MSG, empty=_ASK_EMPTY_MSG)

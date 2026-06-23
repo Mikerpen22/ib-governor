@@ -271,3 +271,49 @@ path never does. The phone cannot punch through the brake even if a token leaks.
 - **A subprocess seam keeps the async daemon testable.** `run_agent` and
   `_gate_submit` are module-level seams; the routing tests inject fakes and never
   spawn `claude` or a gate process.
+
+## Phase 8 — the chat becomes a cockpit (Q&A + UX)
+
+Phase 7 made the chat *place* orders. Phase 8 makes it *answer* — and cleans up
+the interaction surface — without weakening the brake.
+
+**Three tiers, fastest first.** `handle_telegram_text` now splits a non-confirm
+message with `classify_message` (ORDER vs ASK — a cheap heuristic; a misread is
+harmless because both lanes are read-only):
+
+1. **Deterministic fast-path** (`comms/ask.py::quick_answer`, sub-second). The
+   daemon already holds a live `ib` (client_id 4) with account values, portfolio
+   and fills streamed by `ib_async`. Leverage / cushion / P&L / today / positions
+   are answered straight from `live.daily.collect_account_view` — the
+   connection-cheap subset of the daily collector (everything *except* the slow
+   market backdrop). No subprocess, no new socket. Works even with the order
+   agent disabled.
+2. **Slash shortcuts** (`setMyCommands`): `/leverage /pnl /positions /today
+   /cushion` map to the same quick answers as one-tap buttons.
+3. **The ask agent** (`run_ask_agent`, ~a minute) for open-ended questions —
+   "analyze my book", NL technicals, news. A second `claude -p` lane with the
+   web tools added (`WebSearch`/`WebFetch`) and a **read-only** prompt; it can run
+   `governor.live.daily --json`, the new read-only `governor.technicals` CLI (a
+   setup read that **stages nothing**, unlike `gate analyze`), and read the
+   research vault. Same deny rules + dry-run sandbox as the order agent.
+
+**Formatting + confirm UX.** `comms/format.py` gives a Telegram-HTML house style,
+threaded through the daemon's messages; `TelegramClient.send` falls back to plain
+text on a markup error so a formatting bug can never drop a brake alert. Confirm
+buttons now ride on *every* confirmable thing (orders **and** circuit-breaker
+actions, via namespaced callback data `confirm:` / `action:` / `cancel:`), and a
+tap **edits the card in place** (`editMessageText`) into its outcome instead of
+spawning a second message.
+
+### Lessons
+
+- **The warm connection is the feature.** The instant-answer tier exists only
+  because the always-on daemon already holds the account streamed; the trick was
+  carving the *cheap* read (`collect_account_view`) away from the slow backdrop,
+  not adding a new data path.
+- **A read-only lane still earns its own dedicated CLI.** `gate analyze` stages a
+  token as a side effect — wrong for a mere question — so NL technicals get
+  `governor.technicals`, which qualifies + fetches + assesses and writes nothing.
+- **Two read-only lanes make classification low-stakes.** Because neither the
+  order lane (stages only) nor the ask lane (reads only) can move money, the
+  ORDER/ASK split can stay a tunable heuristic instead of a safety gate.

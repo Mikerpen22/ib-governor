@@ -116,25 +116,26 @@ async def test_natural_language_routes_to_agent(tmp_path, monkeypatch):
 
 async def test_confirm_prefixed_sentence_is_not_treated_as_a_submit(tmp_path, monkeypatch):
     """A natural-language message that merely starts with 'confirm' must go to the
-    agent — not be parsed as `CONFIRM <token>` and pushed at gate submit."""
-    submit_calls, agent_seen = [], []
+    ask agent (it reads as a question) — not be parsed as `CONFIRM <token>` and
+    pushed at gate submit."""
+    submit_calls, ask_seen = [], []
 
     async def _fake_gate_submit(token, timeout):
         submit_calls.append(token)
         return 0, "PLACED", ""
 
-    async def _fake_agent(text, cfg):
-        agent_seen.append(text)
+    async def _fake_ask(text, cfg):
+        ask_seen.append(text)
         return "ok"
 
     monkeypatch.setattr(daemon_mod, "_gate_submit", _fake_gate_submit)
-    monkeypatch.setattr(daemon_mod, "run_agent", _fake_agent)
+    monkeypatch.setattr(daemon_mod, "run_ask_agent", _fake_ask)
 
     d = _daemon(tmp_path)
     await d.handle_telegram_text("confirm that oracle is a good buy here")
 
     assert submit_calls == []                         # not a submit
-    assert agent_seen == ["confirm that oracle is a good buy here"]
+    assert ask_seen == ["confirm that oracle is a good buy here"]
 
 
 async def test_help_command_replies_help_without_agent(tmp_path, monkeypatch):
@@ -356,19 +357,26 @@ async def test_order_message_skips_quick_path_even_with_a_view(tmp_path, monkeyp
     assert seen == ["buy 100 ORCL"]                   # routed to the agent, not quick-answer
 
 
-async def test_unrecognized_ask_falls_through_to_agent(tmp_path, monkeypatch):
-    seen = []
+async def test_unrecognized_ask_falls_through_to_ask_agent(tmp_path, monkeypatch):
+    order_seen, ask_seen = [], []
 
-    async def _fake_agent(text, cfg):
-        seen.append(text)
-        return "hmm"
+    async def _fake_order(text, cfg):
+        order_seen.append(text)
+        return "no"
 
-    monkeypatch.setattr(daemon_mod, "run_agent", _fake_agent)
+    async def _fake_ask(text, cfg):
+        ask_seen.append(text)
+        return "🔎 here's what I found"
+
+    monkeypatch.setattr(daemon_mod, "run_agent", _fake_order)
+    monkeypatch.setattr(daemon_mod, "run_ask_agent", _fake_ask)
     d = _daemon(tmp_path)
     d._account_view = lambda: _FAST_VIEW
     await d.handle_telegram_text("what do you think about gold")
 
-    assert seen == ["what do you think about gold"]   # no quick pattern → agent
+    assert ask_seen == ["what do you think about gold"]   # no quick pattern → ASK agent
+    assert order_seen == []                                # never the order agent
+    assert any("found" in r for r in d._replies)
 
 
 async def test_quick_path_works_even_with_agent_disabled(tmp_path):
@@ -382,16 +390,53 @@ async def test_quick_path_works_even_with_agent_disabled(tmp_path):
 
 
 async def test_quick_path_skipped_when_view_unavailable(tmp_path, monkeypatch):
-    """Disconnected / unreadable account view → fall through to the agent, no crash."""
+    """Disconnected / unreadable account view → fall through to the ask agent, no crash."""
     seen = []
 
-    async def _fake_agent(text, cfg):
+    async def _fake_ask(text, cfg):
         seen.append(text)
         return "ok"
 
-    monkeypatch.setattr(daemon_mod, "run_agent", _fake_agent)
+    monkeypatch.setattr(daemon_mod, "run_ask_agent", _fake_ask)
     d = _daemon(tmp_path)
     d._account_view = lambda: None                    # e.g. not connected
     await d.handle_telegram_text("leverage?")
 
-    assert seen == ["leverage?"]                      # no view → agent fallback
+    assert seen == ["leverage?"]                      # no view → ask-agent fallback
+
+
+# --- slash-command menu shortcuts → deterministic quick answers ---------------
+
+async def test_slash_leverage_shortcut_answers_from_view(tmp_path, monkeypatch):
+    agent_calls = []
+
+    async def _fake_ask(text, cfg):
+        agent_calls.append(text)
+        return "x"
+
+    monkeypatch.setattr(daemon_mod, "run_ask_agent", _fake_ask)
+    d = _daemon(tmp_path)
+    d._account_view = lambda: _FAST_VIEW
+    await d.handle_telegram_text("/leverage")
+
+    assert any("Leverage" in r for r in d._replies)   # answered from the view
+    assert agent_calls == []                           # not the agent
+
+
+async def test_slash_today_shortcut_maps_to_today_question(tmp_path):
+    view = {**_FAST_VIEW, "fills": [
+        {"symbol": "NVDA", "sec_type": "STK", "side": "BOT", "shares": 100,
+         "price": 120.0, "realized_pnl": 0.0, "time": ""}]}
+    d = _daemon(tmp_path)
+    d._account_view = lambda: view
+    await d.handle_telegram_text("/today")
+
+    assert any("Today" in r for r in d._replies)
+
+
+async def test_slash_shortcut_is_graceful_without_a_view(tmp_path):
+    d = _daemon(tmp_path)
+    d._account_view = lambda: None
+    await d.handle_telegram_text("/positions")
+
+    assert any("try again" in r.lower() for r in d._replies)

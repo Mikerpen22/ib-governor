@@ -77,6 +77,16 @@ class TelegramClient:
             log.error("telegram editMessageText failed: %s", exc)
             return False
 
+    async def set_my_commands(self, commands: list[dict]) -> None:
+        """Register the bot's slash-command menu (setMyCommands) so the user sees
+        /leverage, /pnl, /positions … as one-tap shortcuts. Best-effort."""
+        try:
+            resp = await self._http.post(f"{self._base}/setMyCommands",
+                                         json={"commands": commands})
+            resp.raise_for_status()
+        except Exception as exc:  # comms failure must not crash the brake
+            log.error("telegram setMyCommands failed: %s", exc)
+
     async def answer_callback(self, callback_id: str, text: str = "") -> None:
         """Acknowledge an inline-button tap so Telegram clears the loading spinner."""
         try:

@@ -36,3 +36,9 @@ def test_help_message_is_html_and_mentions_the_brake():
     s = help_message()
     assert "<b>" in s and "brake" in s.lower()
     assert "&lt;token&gt;" in s                   # the literal <token> grammar is escaped
+
+
+def test_help_message_covers_the_ask_lane_and_shortcuts():
+    s = help_message()
+    assert "read-only" in s.lower()               # advertises the question lane
+    assert "/leverage" in s and "/positions" in s  # menu shortcuts listed

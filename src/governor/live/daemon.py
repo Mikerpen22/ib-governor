@@ -20,7 +20,7 @@ import httpx
 from ..actions.executor import ActionExecutor
 from ..actions.lockout import LockoutStore
 from ..actions.tokens import ConfirmTokenGate
-from ..comms.agent_runner import run_agent
+from ..comms.agent_runner import run_agent, run_ask_agent
 from ..comms.ask import Intent, classify_message, quick_answer
 from ..comms.format import b, code, esc, header, i, joinsections, section, strip_tags
 from ..comms.notify import notify as macos_notify
@@ -52,6 +52,27 @@ _BENIGN_IB_CODES = {2104, 2106, 2107, 2108, 2119, 2158}
 _TOKEN_RE = re.compile(r"^[0-9A-F]{8,}$")
 _TOKEN_STRIP = "`*_'\".,!?:;()[]"
 _COMMANDS = ("/start", "/help", "help")
+
+# Slash shortcuts (the Telegram command menu) → the canonical question each maps
+# to, answered by the deterministic read-only fast-path.
+_QUICK_COMMANDS = {
+    "/leverage": "leverage",
+    "/pnl": "how am I doing",
+    "/positions": "positions",
+    "/book": "book",
+    "/today": "what did I trade today",
+    "/cushion": "margin cushion",
+}
+
+# Registered with Telegram (setMyCommands) so they appear as tap shortcuts.
+_BOT_COMMANDS = [
+    {"command": "leverage", "description": "Current gross leverage"},
+    {"command": "pnl", "description": "Today's P&L"},
+    {"command": "positions", "description": "Open positions"},
+    {"command": "today", "description": "Today's trades"},
+    {"command": "cushion", "description": "Margin cushion"},
+    {"command": "help", "description": "What I can do"},
+]
 
 
 def _normalize_token(word: str) -> str | None:
@@ -127,7 +148,7 @@ def help_message() -> str:
     return joinsections(
         "👋 " + b("I'm your trading brake.") + " Text me an order in plain English "
         "and I'll check it against your rules before anything is placed.",
-        section("Try:", [
+        section("Place an order:", [
             "• " + i("buy 10 oracle"),
             "• " + i("grab 2 micro nasdaq at 21000, stop 20900"),
             "• " + i("sell 50 SNAP at market"),
@@ -135,6 +156,13 @@ def help_message() -> str:
         "I'll reply with a risk read and a confirm token. Nothing is placed until "
         "you tap " + b("✅ Place order") + " or reply " + code("CONFIRM <token>") +
         ". Orders expire after ~5 minutes for safety.",
+        section("Ask me anything (read-only):", [
+            "• " + i("what's my leverage?") + " · " + i("how am I doing?"),
+            "• " + i("show my positions") + " · " + i("what did I trade today?"),
+            "• " + i("how does NVDA look?") + " · " + i("any news on oracle?"),
+        ]),
+        "Shortcuts: " + code("/leverage") + " " + code("/pnl") + " " +
+        code("/positions") + " " + code("/today") + " " + code("/cushion") + ".",
     )
 
 
@@ -379,18 +407,24 @@ class BrakeDaemon:
     async def handle_telegram_text(self, text: str) -> None:
         """Route one inbound Telegram message through the branches:
 
-        0. `/start` / `/help` -> onboarding text,
+        0. `/start` / `/help` -> onboarding;  a `/leverage`-style shortcut -> quick answer,
         1. a staged circuit-breaker ACTION confirm (in-memory token),
         2. an ORDER confirm (`CONFIRM <token>` -> gate submit chokepoint),
-        3. a natural-language order request (-> headless `claude -p` agent),
-           preceded by an instant ack so the user isn't staring at silence.
+        3a. a read-only QUESTION -> the deterministic fast-path, else the ask agent,
+        3b. a natural-language ORDER -> the headless `claude -p` order agent,
+            each preceded by an instant ack so the user isn't staring at silence.
 
         Order placement never happens here — it flows through `gate submit`,
         which enforces both locks, the _guarded chokepoint, and the BLOCK
-        refusal. The agent only proposes + stages.
+        refusal. The order agent only proposes + stages; the ask lane is read-only.
         """
-        if text.strip().lower() in _COMMANDS:
+        stripped = text.strip().lower()
+        if stripped in _COMMANDS:
             await self._reply(help_message())
+            return
+        slug = stripped.split()[0] if stripped else ""
+        if slug in _QUICK_COMMANDS:                      # /leverage, /pnl, … menu shortcuts
+            await self._reply(self._quick_or_unavailable(_QUICK_COMMANDS[slug]))
             return
         if self.on_confirm(text):
             return
@@ -398,17 +432,28 @@ class BrakeDaemon:
         if token is not None:
             await self._reply(await self._submit_staged_order(token))
             return
-        # Read-only ask lane: a recognized factual question (leverage / P&L /
-        # positions / today) is answered instantly off the daemon's already-live
-        # connection — no subprocess, no new socket. Deterministic + read-only, so
-        # it works even when the order agent is disabled. Misses fall through.
-        if classify_message(text) is Intent.ASK:
+
+        intent = classify_message(text)
+        if intent is Intent.ASK:
+            # Read-only ask lane. A recognized factual question is answered instantly
+            # off the daemon's already-live connection — no subprocess, no new socket
+            # — and works even when the order agent is disabled. Misses fall to the
+            # (slower) read-only ask agent.
             view = self._account_view()
             if view is not None:
                 answer = quick_answer(text, view)
                 if answer is not None:
                     await self._reply(answer)
                     return
+            if not self.config.telegram_agent.enabled:
+                log.info("telegram_agent disabled — no ask-agent fallback")
+                return
+            async with self._agent_sema:
+                await self._reply("🔎 Looking into that…")
+                reply = await run_ask_agent(text, self.config.telegram_agent)
+            await self._reply(reply)                     # ask agent replies HTML; read-only, no token
+            return
+
         if not self.config.telegram_agent.enabled:
             log.info("telegram_agent disabled — ignoring non-confirm message")
             return
@@ -419,6 +464,13 @@ class BrakeDaemon:
         # text can't break HTML parsing. If it proposed an order (reply carries a
         # CONFIRM token) attach ✅/✖️ buttons; a BLOCK / clarifying reply has none.
         await self._reply(esc(reply), token=_confirm_token(reply))
+
+    def _quick_or_unavailable(self, question: str) -> str:
+        """Answer a slash-shortcut question from the live account view, or a
+        friendly fallback when we can't read the account."""
+        view = self._account_view()
+        answer = quick_answer(question, view) if view is not None else None
+        return answer or "⚠️ Can't read your account right now — try again in a moment."
 
     async def handle_callback(self, data: str, callback_id: str | None = None,
                               message_id: int | None = None) -> None:
@@ -571,6 +623,8 @@ class BrakeDaemon:
                 )
         except Exception as exc:  # noqa: BLE001
             log.error("telegram backlog drain failed: %s", exc)
+        # Register the slash-command menu so /leverage, /pnl, … show as shortcuts.
+        await self.telegram.set_my_commands(_BOT_COMMANDS)
         while True:
             try:
                 texts, callbacks, self._tg_offset = await self.telegram.poll(self._tg_offset)

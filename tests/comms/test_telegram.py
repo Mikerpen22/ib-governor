@@ -213,3 +213,13 @@ async def test_edit_message_returns_false_on_error():
 
     c = TelegramClient(TelegramConfig(bot_token="T", chat_id="42"), FailHTTP())
     assert await c.edit_message(1, "x") is False
+
+
+@pytest.mark.asyncio
+async def test_set_my_commands_posts_command_menu():
+    http = FakeHTTP()
+    c = TelegramClient(TelegramConfig(bot_token="T", chat_id="42"), http)
+    cmds = [{"command": "leverage", "description": "Gross leverage"}]
+    await c.set_my_commands(cmds)
+    url, body = http.posts[0]
+    assert url.endswith("/setMyCommands") and body["commands"] == cmds
