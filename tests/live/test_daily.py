@@ -141,20 +141,38 @@ _TWO_BARS_UP = [_bar(100.0), _bar(101.0)]
 # Tests: fetch_account_pnl (reqPnL seam)
 # ---------------------------------------------------------------------------
 
-def _pnl_obj(daily, realized, unrealized):
-    return SimpleNamespace(dailyPnL=daily, realizedPnL=realized, unrealizedPnL=unrealized)
+def _pnl_obj(daily, realized, unrealized, account="U1"):
+    return SimpleNamespace(account=account, dailyPnL=daily, realizedPnL=realized,
+                           unrealizedPnL=unrealized)
 
 
-def test_fetch_account_pnl_maps_fields():
-    ib = SimpleNamespace(reqPnL=lambda acct: _pnl_obj(-3637.4, 265.4, -9098.9))
+def _no_resubscribe(*_a):
+    raise AssertionError("reqPnL must not be called when a warm subscription exists")
+
+
+def test_fetch_account_pnl_reads_warm_subscription():
+    # production path: the daemon already subscribed, so ib.pnl() holds the settled
+    # object; we must NOT re-call reqPnL (ib_async raises on re-subscribe).
+    ib = SimpleNamespace(pnl=lambda *a: [_pnl_obj(-3637.4, 265.4, -9098.9)],
+                         reqPnL=_no_resubscribe)
     out = fetch_account_pnl(ib, "U1")
     assert out == {"daily": pytest.approx(-3637.4),
                    "realized": pytest.approx(265.4),
                    "unrealized": pytest.approx(-9098.9)}
 
 
+def test_fetch_account_pnl_subscribes_when_cold():
+    # no warm subscription -> reqPnL subscribes and returns the object
+    ib = SimpleNamespace(pnl=lambda *a: [], reqPnL=lambda acct: _pnl_obj(-1.0, 2.0, 3.0))
+    out = fetch_account_pnl(ib, "U1")
+    assert out == {"daily": pytest.approx(-1.0),
+                   "realized": pytest.approx(2.0),
+                   "unrealized": pytest.approx(3.0)}
+
+
 def test_fetch_account_pnl_maps_nan_and_inf_to_none():
-    ib = SimpleNamespace(reqPnL=lambda acct: _pnl_obj(float("nan"), float("inf"), -10.0))
+    ib = SimpleNamespace(pnl=lambda *a: [_pnl_obj(float("nan"), float("inf"), -10.0)],
+                         reqPnL=_no_resubscribe)
     out = fetch_account_pnl(ib, "U1")
     assert out["daily"] is None and out["realized"] is None
     assert out["unrealized"] == pytest.approx(-10.0)
@@ -163,12 +181,12 @@ def test_fetch_account_pnl_maps_nan_and_inf_to_none():
 def test_fetch_account_pnl_is_all_none_when_reqpnl_raises():
     def boom(acct):
         raise RuntimeError("no subscription")
-    ib = SimpleNamespace(reqPnL=boom)
+    ib = SimpleNamespace(pnl=lambda *a: [], reqPnL=boom)
     assert fetch_account_pnl(ib, "U1") == {"daily": None, "realized": None, "unrealized": None}
 
 
-def test_fetch_account_pnl_is_all_none_when_ib_lacks_reqpnl():
-    ib = SimpleNamespace()  # no reqPnL attribute
+def test_fetch_account_pnl_is_all_none_when_ib_lacks_pnl_api():
+    ib = SimpleNamespace()  # no pnl / reqPnL attributes
     assert fetch_account_pnl(ib, "U1") == {"daily": None, "realized": None, "unrealized": None}
 
 
@@ -187,7 +205,8 @@ def test_collect_account_view_includes_pnl_from_reqpnl():
         portfolio=lambda: [],
         fills=lambda: [],
         managedAccounts=lambda: ["U1"],
-        reqPnL=lambda acct: SimpleNamespace(dailyPnL=-1000.0, realizedPnL=50.0, unrealizedPnL=-2000.0),
+        pnl=lambda *a: [SimpleNamespace(account="U1", dailyPnL=-1000.0,
+                                        realizedPnL=50.0, unrealizedPnL=-2000.0)],
     )
     view = collect_account_view(ib, RulesConfig(), _TODAY)
     assert view["pnl"] == {"daily": pytest.approx(-1000.0),

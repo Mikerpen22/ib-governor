@@ -207,13 +207,22 @@ def _finite_or_none(value) -> float | None:
 
 
 def fetch_account_pnl(ib, account: str) -> dict:
-    """Account-level P&L from ib.reqPnL: {daily, realized, unrealized} (floats or
-    None per field). Never raises — a missing reqPnL / stream error / unsettled
-    (nan) field yields None, so the caller renders 'n/a', never a phantom number."""
+    """Account-level P&L: {daily, realized, unrealized} (floats or None per field).
+
+    Reads the EXISTING (warm) reqPnL subscription via ib.pnl() — the daemon
+    subscribes once at startup, and ib_async raises AssertionError if reqPnL is
+    called again for an already-subscribed account, so we must NOT re-subscribe.
+    Only when no subscription exists do we reqPnL (a cold subscribe returns an
+    unsettled object -> nan -> None until it populates). Never raises: a missing
+    API / stream error / unsettled (nan) field yields None, so the caller renders
+    'n/a', never a phantom number."""
     blank = {"daily": None, "realized": None, "unrealized": None}
     try:
-        pnl = ib.reqPnL(account)
+        existing = [p for p in ib.pnl() if not account or getattr(p, "account", None) == account]
+        pnl = existing[0] if existing else ib.reqPnL(account)
     except Exception:  # noqa: BLE001 — a P&L read must never crash the caller
+        return blank
+    if pnl is None:
         return blank
     return {
         "daily": _finite_or_none(getattr(pnl, "dailyPnL", None)),
