@@ -10,7 +10,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from governor.comms.agent_runner import build_claude_argv, run_agent
+from governor.comms.agent_runner import (
+    build_ask_argv,
+    build_claude_argv,
+    run_agent,
+    run_ask_agent,
+)
 
 
 def _cfg(enabled=True, claude_bin="claude", timeout=120.0):
@@ -126,3 +131,44 @@ async def test_empty_stdout_falls_back_to_a_message():
     reply = await run_agent("buy 100 ORCL", _cfg(),
                             runner=runner, which=lambda b: "/usr/bin/claude")
     assert reply.strip()                                        # some message, not blank
+
+
+# ── the read-only ASK agent ─────────────────────────────────────────────────
+
+def test_ask_argv_adds_web_tools_and_keeps_the_write_denies():
+    argv = build_ask_argv("how does NVDA look?", _cfg())
+    allowed = _values_after(argv, "--allowed-tools")
+    assert "WebSearch" in allowed and "WebFetch" in allowed     # news on top of Bash/Read
+    assert "Bash" in allowed and "Read" in allowed
+    disallowed = " ".join(_values_after(argv, "--disallowed-tools"))
+    assert "governor.gate submit" in disallowed and "place_order" in disallowed
+    assert "--strict-mcp-config" in argv                        # MCP place_order still can't load
+
+
+def test_ask_prompt_forbids_placing_or_staging():
+    argv = build_ask_argv("x", _cfg())
+    prompt = argv[argv.index("--append-system-prompt") + 1].lower()
+    assert "read-only" in prompt
+    assert "never place or stage" in prompt or "no trading authority" in prompt
+
+
+async def test_run_ask_agent_relays_html_stdout():
+    runner = _FakeRunner(rc=0, stdout="  <b>NVDA</b> looks extended  ")
+    reply = await run_ask_agent("how does NVDA look?", _cfg(),
+                                runner=runner, which=lambda b: "/usr/bin/claude")
+    assert reply == "<b>NVDA</b> looks extended"                # HTML preserved (not escaped here)
+
+
+async def test_run_ask_agent_disabled_is_graceful_without_running():
+    runner = _FakeRunner(stdout="should not run")
+    reply = await run_ask_agent("what's my leverage", _cfg(enabled=False),
+                                runner=runner, which=lambda b: "/usr/bin/claude")
+    assert runner.calls == []
+    assert "off" in reply.lower() or "unavailable" in reply.lower()
+
+
+async def test_run_ask_agent_exception_is_graceful_not_raised():
+    runner = _FakeRunner(raises=TimeoutError("timed out"))
+    reply = await run_ask_agent("news on oracle", _cfg(),
+                                runner=runner, which=lambda b: "/usr/bin/claude")
+    assert isinstance(reply, str) and reply                     # never raises

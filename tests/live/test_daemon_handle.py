@@ -46,7 +46,8 @@ def _daemon(tmp_path, token="TOK1"):
     d.tokens = ConfirmTokenGate(300, token_factory=lambda: token)
     d.lockout_store = LockoutStore(tmp_path / "l.json")
     d._alerts = []
-    d.alert = d._alerts.append  # stub: capture alert text, no Telegram/macOS
+    # stub: capture alert text (drop the action_token kwarg), no Telegram/macOS
+    d.alert = lambda text, **kw: d._alerts.append(text)
     return d
 
 

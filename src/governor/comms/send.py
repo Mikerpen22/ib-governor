@@ -19,14 +19,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import re
 import sys
 
 from ..config import load_env_file, telegram_from_env
+from .format import strip_tags
 from .notify import notify
 from .telegram import TelegramClient
-
-_TAG_RE = re.compile(r"<[^>]+>")
 
 
 def main() -> None:
@@ -45,7 +43,7 @@ def main() -> None:
     parse_mode = "HTML" if args.html else None
 
     # macOS notification (always; strip any HTML tags + truncate for the banner)
-    banner = _TAG_RE.sub("", text) if args.html else text
+    banner = strip_tags(text) if args.html else text
     notify("Daily Summary", banner[:200])
 
     # Telegram (conditional on config)

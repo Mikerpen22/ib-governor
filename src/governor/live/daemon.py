@@ -20,7 +20,9 @@ import httpx
 from ..actions.executor import ActionExecutor
 from ..actions.lockout import LockoutStore
 from ..actions.tokens import ConfirmTokenGate
-from ..comms.agent_runner import run_agent
+from ..comms.agent_runner import run_agent, run_ask_agent
+from ..comms.ask import Intent, classify_message, quick_answer
+from ..comms.format import b, code, esc, header, i, joinsections, section, strip_tags
 from ..comms.notify import notify as macos_notify
 from ..comms.proc import run_capture
 from ..comms.telegram import TelegramClient
@@ -33,6 +35,7 @@ from ..state.json_store import StateFileError
 from ..state.trade_log import WeeklyTradeLog
 from .builder import build_live_snapshot
 from .connection import BrakeConnection
+from .daily import collect_account_view
 from .sector import SectorResolver
 from .snapshot import contract_symbol, is_sec_type
 
@@ -49,6 +52,27 @@ _BENIGN_IB_CODES = {2104, 2106, 2107, 2108, 2119, 2158}
 _TOKEN_RE = re.compile(r"^[0-9A-F]{8,}$")
 _TOKEN_STRIP = "`*_'\".,!?:;()[]"
 _COMMANDS = ("/start", "/help", "help")
+
+# Slash shortcuts (the Telegram command menu) → the canonical question each maps
+# to, answered by the deterministic read-only fast-path.
+_QUICK_COMMANDS = {
+    "/leverage": "leverage",
+    "/pnl": "how am I doing",
+    "/positions": "positions",
+    "/book": "book",
+    "/today": "what did I trade today",
+    "/cushion": "margin cushion",
+}
+
+# Registered with Telegram (setMyCommands) so they appear as tap shortcuts.
+_BOT_COMMANDS = [
+    {"command": "leverage", "description": "Current gross leverage"},
+    {"command": "pnl", "description": "Today's P&L"},
+    {"command": "positions", "description": "Open positions"},
+    {"command": "today", "description": "Today's trades"},
+    {"command": "cushion", "description": "Margin cushion"},
+    {"command": "help", "description": "What I can do"},
+]
 
 
 def _normalize_token(word: str) -> str | None:
@@ -118,16 +142,28 @@ async def _gate_submit(token: str, timeout: float) -> tuple[int, str, str]:
 # already be live) rather than "failed".
 _SUBMIT_TIMEOUT_SECONDS = 60.0
 
-_HELP_TEXT = (
-    "👋 I'm your trading brake. Text me an order in plain English and I'll check it "
-    "against your rules before anything is placed.\n\n"
-    "Try:\n"
-    " • buy 10 oracle\n"
-    " • grab 2 micro nasdaq at 21000, stop 20900\n"
-    " • sell 50 SNAP at market\n\n"
-    "I'll reply with a risk read and a confirm token. Nothing is placed until you "
-    "reply CONFIRM <token>. Orders expire after ~5 minutes for safety."
-)
+def help_message() -> str:
+    """Onboarding text in the Telegram-HTML house style (bold lead, italic
+    examples, <code> for the literal confirm grammar)."""
+    return joinsections(
+        "👋 " + b("I'm your trading brake.") + " Text me an order in plain English "
+        "and I'll check it against your rules before anything is placed.",
+        section("Place an order:", [
+            "• " + i("buy 10 oracle"),
+            "• " + i("grab 2 micro nasdaq at 21000, stop 20900"),
+            "• " + i("sell 50 SNAP at market"),
+        ]),
+        "I'll reply with a risk read and a confirm token. Nothing is placed until "
+        "you tap " + b("✅ Place order") + " or reply " + code("CONFIRM <token>") +
+        ". Orders expire after ~5 minutes for safety.",
+        section("Ask me anything (read-only):", [
+            "• " + i("what's my leverage?") + " · " + i("how am I doing?"),
+            "• " + i("show my positions") + " · " + i("what did I trade today?"),
+            "• " + i("how does NVDA look?") + " · " + i("any news on oracle?"),
+        ]),
+        "Shortcuts: " + code("/leverage") + " " + code("/pnl") + " " +
+        code("/positions") + " " + code("/today") + " " + code("/cushion") + ".",
+    )
 
 
 def _is_fast_message(text: str) -> bool:
@@ -140,10 +176,10 @@ def _is_fast_message(text: str) -> bool:
 
 
 _REASON_REPLIES = {
-    "BLOCKED": "🛑 BLOCKED — I did NOT place this order. Nothing happened to your account.",
+    "BLOCKED": f"🛑 {b('BLOCKED')} — I did NOT place this order. Nothing happened to your account.",
     "EXPIRED": ("⏳ That confirmation expired or was already used (orders time out after "
                 "~5 min). Text me the order again to get a fresh one."),
-    "READONLY": "⚠️ Can't place — the connection is in read-only / safe mode. Nothing happened.",
+    "READONLY": f"⚠️ Can't place — the connection is in {b('read-only / safe mode')}. Nothing happened.",
     "INVALID_INTENT": "⚠️ Couldn't place that order — the staged order was invalid. Please re-send it.",
 }
 
@@ -163,19 +199,41 @@ def _friendly_submit_reply(rc: int, out: str, err: str) -> str:
             reason, "⚠️ Couldn't place that order. Nothing happened to your account.")
     label = f"{d.get('action', '?')} {int(d.get('quantity', 0) or 0)} {d.get('symbol', '?')}"
     if d.get("placed"):
-        return f"✅ ORDER PLACED — {label} is live at IBKR now."
+        return f"✅ {b('ORDER PLACED')} — {code(label)} is live at IBKR now."
     if d.get("dry_run"):
-        return (f"🧪 PRACTICE MODE — {label} was NOT placed; your account is "
+        return (f"🧪 {b('PRACTICE MODE')} — {code(label)} was NOT placed; your account is "
                 f"untouched (the bot is in safe / dry-run mode).")
-    return f"⚠️ {label} — submitted, but status is uncertain. Check TWS."
+    return f"⚠️ {code(label)} — submitted, but status is uncertain. Check TWS."
 
 
-def _confirm_keyboard(token: str) -> dict:
-    """Inline keyboard so the user taps ✅/✖️ instead of typing a 16-char token.
-    The token still rides in callback_data, so the safety model is unchanged —
-    placement still flows through gate submit; taps are just a nicer transport."""
+def rule_alert(trip) -> str:
+    """A circuit-breaker trip line in the house style: bold rule id, the severity
+    tag left bare so `[hard]` stays a literal substring, escaped message."""
+    return f"🛑 {b(trip.rule_id)} [{trip.severity.value}] — {esc(trip.message)}"
+
+
+def staged_action_message(action_value: str, mode: str, ttl_seconds: float, token: str) -> str:
+    """The confirm-gated staged-action announcement. `token` rides in <code> so
+    it stays copy-pasteable (and a literal substring) regardless of formatting."""
+    return joinsections(
+        f"{header('🟡', f'Staged action ({mode})')}: {code(action_value)}.",
+        f"Tap below, or reply {code('CONFIRM ' + token)}, within {int(ttl_seconds)}s to proceed.",
+    )
+
+
+def _confirm_keyboard(token: str, kind: str = "order") -> dict:
+    """Inline keyboard so the user taps instead of typing a token. The token rides
+    in callback_data, so the safety model is unchanged — taps are just a nicer
+    transport. `kind` namespaces the tap so it routes to the right path:
+      - "order"  → confirm:<token>  → gate submit (the order write chokepoint)
+      - "action" → action:<token>   → in-memory circuit-breaker execute
+    Cancel is shared (cancel:<token>)."""
+    if kind == "action":
+        go_text, go_data = "✅ Confirm", f"action:{token}"
+    else:
+        go_text, go_data = "✅ Place order", f"confirm:{token}"
     return {"inline_keyboard": [[
-        {"text": "✅ Place order", "callback_data": f"confirm:{token}"},
+        {"text": go_text, "callback_data": go_data},
         {"text": "✖️ Cancel", "callback_data": f"cancel:{token}"},
     ]]}
 
@@ -234,11 +292,31 @@ class BrakeDaemon:
         self.handle(trips, snap, reason)
         return trips
 
-    def alert(self, text: str) -> None:
-        log.warning(text)
-        macos_notify("Brake", text)
+    def _account_view(self) -> dict | None:
+        """The connection-cheap account view (no market backdrop) for the
+        quick-answer fast-path. None when we can't read it (disconnected / error)
+        so the caller falls through to the slower ask agent — never raises."""
+        if not self.ib.isConnected():
+            return None
+        try:
+            return collect_account_view(self.ib, self.config, self._now())
+        except Exception as exc:  # noqa: BLE001 — a read failure must not crash the loop
+            log.error("account view failed: %s", exc)
+            return None
+
+    def alert(self, text: str, *, action_token: str | None = None) -> None:
+        """Loud brake notification: telegram (HTML) + macOS banner + WARNING log.
+        `text` is HTML; the log + banner get the tags stripped so they stay
+        readable, telegram gets the formatted version (with a plain-text fallback
+        inside send() if the markup is ever rejected). When *action_token* is
+        given, attach ✅/✖️ buttons so a staged circuit-breaker action can be
+        confirmed with a tap (routes to action:<token>)."""
+        plain = strip_tags(text)
+        log.warning(plain)
+        macos_notify("Brake", plain)
         if self._telegram_cfg.enabled:
-            asyncio.ensure_future(self.telegram.send(text))
+            markup = _confirm_keyboard(action_token, kind="action") if action_token else None
+            asyncio.ensure_future(self.telegram.send(text, parse_mode="HTML", reply_markup=markup))
 
     def handle(self, trips, snap, reason) -> None:
         self._last_built = self._now()
@@ -249,12 +327,12 @@ class BrakeDaemon:
                 lk = self.lockout_store.active(self._now())
             except StateFileError as exc:
                 # Present-but-unreadable lockout state: fail CLOSED — assume locked + scream.
-                self.alert(f"\U0001f6d1 BRAKE BLIND: lockout state unreadable ({exc}). "
+                self.alert(f"\U0001f6d1 {b('BRAKE BLIND')}: lockout state unreadable ({esc(exc)}). "
                            f"Assume you ARE locked out — inspect/clear config/lockout.json.")
             else:
                 if lk:
-                    self.alert(f"⚠️ LOCKOUT VIOLATION: you traded futures while a {lk.kind} "
-                               f"lockout is active (until {lk.until:%H:%M}, reason: {lk.reason}).")
+                    self.alert(f"⚠️ {b('LOCKOUT VIOLATION')}: you traded futures while a {esc(lk.kind)} "
+                               f"lockout is active (until {lk.until:%H:%M}, reason: {esc(lk.reason)}).")
         # Edge-triggered soft alerts: a standing WARN/INFO (e.g. sector concentration)
         # is announced ONCE when it appears and stays quiet while it persists — so the
         # 3x/day briefings don't re-spam it. HARD trips always alert (they stage actions
@@ -264,24 +342,25 @@ class BrakeDaemon:
         for t in trips:
             if t.severity is not Severity.HARD and t.rule_id in self._active_soft_keys:
                 continue  # standing WARN/INFO already announced — don't repeat it
-            self.alert(f"\U0001f6d1 {t.rule_id} [{t.severity.value}] — {t.message}")
+            self.alert(rule_alert(t))
             if t.action not in _ACTIONABLE:
                 continue
             last = self._last_executed.get(t.action.value)
             if last is not None and \
                     (self._now() - last).total_seconds() < self.config.live.action_cooldown_seconds:
                 # post-execute cooldown: don't re-stage the same action while it settles
-                self.alert(f"(cooldown) {t.action.value} executed recently — not re-staging "
+                self.alert(f"(cooldown) {code(t.action.value)} executed recently — not re-staging "
                            f"for ~{int(self.config.live.action_cooldown_seconds)}s.")
                 continue
             token = self.tokens.issue(payload=t, now=self._now(), dedup_key=t.action.value)
             mode = "DRY-RUN" if self.config.live.dry_run else "ARMED"
-            self.alert(f"Staged action ({mode}): {t.action.value}. Reply `CONFIRM {token}` "
-                       f"within {int(self.config.live.confirm_ttl_seconds)}s to proceed.")
+            self.alert(staged_action_message(t.action.value, mode,
+                                             self.config.live.confirm_ttl_seconds, token),
+                       action_token=token)
 
         cleared = self._active_soft_keys - current_rule_ids
         if cleared:
-            self.alert(f"✅ cleared: {', '.join(sorted(cleared))}")
+            self.alert(f"✅ cleared: {esc(', '.join(sorted(cleared)))}")
         self._active_soft_keys = new_soft_keys
 
         if not trips:
@@ -289,7 +368,8 @@ class BrakeDaemon:
                      snap.futures_realized_pnl_today, snap.futures_trade_count_today)
 
     def on_confirm(self, reply_text: str) -> bool:
-        """Confirm a staged circuit-breaker ACTION (in-memory token).
+        """Confirm a staged circuit-breaker ACTION (in-memory token) from a typed
+        message.
 
         Returns True iff a live token matched and the action was dispatched —
         so the message router knows whether to keep looking (order / NL).
@@ -298,35 +378,53 @@ class BrakeDaemon:
         if pending is None:
             return False
         trip = pending.payload
-        self.alert(f"✅ confirmed: {trip.action.value} — executing.")
+        self.alert(f"✅ confirmed: {code(trip.action.value)} — executing.")
         self._execute(trip.action)
         return True
 
+    def _confirm_action(self, token: str) -> str:
+        """Confirm a staged circuit-breaker ACTION from a button tap. Same token
+        gate + executor as on_confirm, but returns an outcome string so the tapped
+        card can be edited in place. A failed execute alerts loudly via _execute."""
+        pending = self.tokens.verify(token, self._now())
+        if pending is None:
+            return "⏳ That action expired or was already used — re-trigger it if you still want it."
+        trip = pending.payload
+        self._execute(trip.action)
+        return f"✅ {b('Confirmed')} — {code(trip.action.value)} executed."
+
     async def _reply(self, text: str, token: str | None = None) -> None:
         """Send a CHAT reply — telegram only. Distinct from alert(), which is for
-        loud brake notifications (telegram + macOS + WARNING log). When *token* is
-        given, attach ✅/✖️ inline buttons so the user can tap to confirm/cancel."""
+        loud brake notifications (telegram + macOS + WARNING log). `text` is
+        Telegram-HTML. When *token* is given, attach ✅/✖️ inline buttons so the
+        user can tap to confirm/cancel."""
         markup = _confirm_keyboard(token) if token else None
         if self._telegram_cfg.enabled:
-            await self.telegram.send(text, reply_markup=markup)
+            await self.telegram.send(text, parse_mode="HTML", reply_markup=markup)
         else:
-            log.info("telegram reply (telegram not configured): %s", text)
+            log.info("telegram reply (telegram not configured): %s", strip_tags(text))
 
     async def handle_telegram_text(self, text: str) -> None:
         """Route one inbound Telegram message through the branches:
 
-        0. `/start` / `/help` -> onboarding text,
+        0. `/start` / `/help` -> onboarding;  a `/leverage`-style shortcut -> quick answer,
         1. a staged circuit-breaker ACTION confirm (in-memory token),
         2. an ORDER confirm (`CONFIRM <token>` -> gate submit chokepoint),
-        3. a natural-language order request (-> headless `claude -p` agent),
-           preceded by an instant ack so the user isn't staring at silence.
+        3a. a read-only QUESTION -> the deterministic fast-path, else the ask agent,
+        3b. a natural-language ORDER -> the headless `claude -p` order agent,
+            each preceded by an instant ack so the user isn't staring at silence.
 
         Order placement never happens here — it flows through `gate submit`,
         which enforces both locks, the _guarded chokepoint, and the BLOCK
-        refusal. The agent only proposes + stages.
+        refusal. The order agent only proposes + stages; the ask lane is read-only.
         """
-        if text.strip().lower() in _COMMANDS:
-            await self._reply(_HELP_TEXT)
+        stripped = text.strip().lower()
+        if stripped in _COMMANDS:
+            await self._reply(help_message())
+            return
+        slug = stripped.split()[0] if stripped else ""
+        if slug in _QUICK_COMMANDS:                      # /leverage, /pnl, … menu shortcuts
+            await self._reply(self._quick_or_unavailable(_QUICK_COMMANDS[slug]))
             return
         if self.on_confirm(text):
             return
@@ -334,19 +432,55 @@ class BrakeDaemon:
         if token is not None:
             await self._reply(await self._submit_staged_order(token))
             return
+
+        intent = classify_message(text)
+        if intent is Intent.ASK:
+            # Read-only ask lane. A recognized factual question is answered instantly
+            # off the daemon's already-live connection — no subprocess, no new socket
+            # — and works even when the order agent is disabled. Misses fall to the
+            # (slower) read-only ask agent.
+            view = self._account_view()
+            if view is not None:
+                answer = quick_answer(text, view)
+                if answer is not None:
+                    await self._reply(answer)
+                    return
+            if not self.config.telegram_agent.enabled:
+                log.info("telegram_agent disabled — no ask-agent fallback")
+                return
+            async with self._agent_sema:
+                await self._reply("🔎 Looking into that…")
+                reply = await run_ask_agent(text, self.config.telegram_agent)
+            await self._reply(reply)                     # ask agent replies HTML; read-only, no token
+            return
+
         if not self.config.telegram_agent.enabled:
             log.info("telegram_agent disabled — ignoring non-confirm message")
             return
         async with self._agent_sema:    # bound concurrent agent subprocesses
             await self._reply("🔍 Got it — analyzing your order now (about a minute)…")
             reply = await run_agent(text, self.config.telegram_agent)
-        # If the agent proposed an order (its reply carries a CONFIRM token),
-        # attach ✅/✖️ buttons; a BLOCK / clarifying reply has no token -> no buttons.
-        await self._reply(reply, token=_confirm_token(reply))
+        # The order agent returns plain prose — escape it so a literal &/</> in the
+        # text can't break HTML parsing. If it proposed an order (reply carries a
+        # CONFIRM token) attach ✅/✖️ buttons; a BLOCK / clarifying reply has none.
+        await self._reply(esc(reply), token=_confirm_token(reply))
 
-    async def handle_callback(self, data: str, callback_id: str | None = None) -> None:
-        """Handle an inline-button tap. `data` is 'confirm:<token>' / 'cancel:<token>'.
-        Same safety path as a typed CONFIRM — the token gates placement."""
+    def _quick_or_unavailable(self, question: str) -> str:
+        """Answer a slash-shortcut question from the live account view, or a
+        friendly fallback when we can't read the account."""
+        view = self._account_view()
+        answer = quick_answer(question, view) if view is not None else None
+        return answer or "⚠️ Can't read your account right now — try again in a moment."
+
+    async def handle_callback(self, data: str, callback_id: str | None = None,
+                              message_id: int | None = None) -> None:
+        """Handle an inline-button tap. `data` is namespaced by what it confirms:
+          - 'confirm:<token>' → place a staged ORDER via the gate submit chokepoint
+          - 'action:<token>'  → execute a staged circuit-breaker ACTION (in-memory)
+          - 'cancel:<token>'  → discard a staged order
+        Same safety path as a typed CONFIRM — the token gates the action. When
+        *message_id* is known, the tapped card is edited in place into its outcome
+        (and the keyboard dropped) instead of spawning a second message."""
         action, _, raw = data.partition(":")
         token = _normalize_token(raw)
         if token is None:                       # malformed/forged tap → tell the user, do nothing
@@ -356,9 +490,22 @@ class BrakeDaemon:
         if callback_id is not None and self._telegram_cfg.enabled:
             await self.telegram.answer_callback(callback_id)  # clear the tap spinner
         if action == "confirm":
-            await self._reply(await self._submit_staged_order(token))
+            outcome = await self._submit_staged_order(token)
+        elif action == "action":
+            outcome = self._confirm_action(token)
         elif action == "cancel":
-            await self._reply(await self._cancel_staged_order(token))
+            outcome = await self._cancel_staged_order(token)
+        else:                                   # unknown namespace → ignore quietly
+            return
+        await self._render_outcome(outcome, message_id)
+
+    async def _render_outcome(self, text: str, message_id: int | None) -> None:
+        """Show the result of a tap. Edit the tapped card in place when we know its
+        id (one clean card, keyboard gone); otherwise fall back to a fresh reply."""
+        if message_id is not None and self._telegram_cfg.enabled and \
+                await self.telegram.edit_message(message_id, text, parse_mode="HTML"):
+            return
+        await self._reply(text)
 
     async def _cancel_staged_order(self, token: str) -> str:
         """Consume + discard a staged order so it can't be confirmed later. Shares
@@ -412,8 +559,8 @@ class BrakeDaemon:
         except Exception as exc:  # noqa: BLE001 — a failed action must NOT look like success
             # e.g. a lockout cancelled orders but couldn't persist its flag: say so loudly
             # instead of letting it vanish into the telegram-loop's generic catch.
-            self.alert(f"\U0001f6d1 ACTION FAILED: {action.value} did not complete ({exc}). "
-                       f"The brake may NOT be armed — verify manually.")
+            self.alert(f"\U0001f6d1 {b('ACTION FAILED')}: {code(action.value)} did not complete "
+                       f"({esc(exc)}). The brake may NOT be armed — verify manually.")
 
     # --- event handlers ---
     def _on_commission(self, trade, fill, report) -> None:
@@ -476,6 +623,8 @@ class BrakeDaemon:
                 )
         except Exception as exc:  # noqa: BLE001
             log.error("telegram backlog drain failed: %s", exc)
+        # Register the slash-command menu so /leverage, /pnl, … show as shortcuts.
+        await self.telegram.set_my_commands(_BOT_COMMANDS)
         while True:
             try:
                 texts, callbacks, self._tg_offset = await self.telegram.poll(self._tg_offset)
@@ -506,7 +655,7 @@ class BrakeDaemon:
 
     async def _safe_handle_callback(self, cb: dict) -> None:
         try:
-            await self.handle_callback(cb.get("data", ""), cb.get("id"))
+            await self.handle_callback(cb.get("data", ""), cb.get("id"), cb.get("message_id"))
         except Exception as exc:  # noqa: BLE001
             log.error("handling telegram callback failed: %s", exc)
 
@@ -524,7 +673,7 @@ class BrakeDaemon:
         try:
             self.evaluate_and_handle("staleness")
         except Exception as exc:  # noqa: BLE001 — a failed refresh IS the blind condition
-            self.alert(f"\U0001f6d1 BRAKE BLIND: snapshot refresh failed ({exc}) — "
+            self.alert(f"\U0001f6d1 {b('BRAKE BLIND')}: snapshot refresh failed ({esc(exc)}) — "
                        f"data may be stale; check TWS.")
 
     async def _staleness_loop(self) -> None:

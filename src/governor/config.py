@@ -83,6 +83,7 @@ class LiveConfig(BaseModel):
     client_id: int = 4                     # Desktop=2, Claude Code=3, ibkr-cli=1, daemon=4
     gate_client_id: int = 5               # the pre-trade gate's own client id, distinct from the daemon's client_id (4) so the gate can connect while the daemon is running
     daily_client_id: int = 6              # the daily-summary collector's own client id, distinct from daemon (4) + gate (5) so it can read while the daemon holds 4
+    technicals_client_id: int = 7         # the read-only technicals CLI's own client id, distinct from daemon (4) / gate (5) / daily (6)
     readonly: bool = True                  # Plan 2 only reads; Plan 3 introduces actions
     account: str = ""                      # blank = the sole managed account
     session_close_et: str = "16:00"        # HH:MM ET — the "close" the overnight rule keys off
