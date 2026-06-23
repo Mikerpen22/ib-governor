@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 
 from ..config import TelegramConfig
+from .format import strip_tags
 
 log = logging.getLogger("governor.telegram")
 
@@ -26,8 +27,24 @@ class TelegramClient:
         try:
             resp = await self._http.post(f"{self._base}/sendMessage", json=payload)
             resp.raise_for_status()
+            return
         except Exception as exc:  # comms failure must not crash the brake
-            log.error("telegram send failed: %s", exc)
+            if not parse_mode:                      # plain send failed → nothing to fall back to
+                log.error("telegram send failed: %s", exc)
+                return
+            # A parse_mode send rejected for bad markup (Telegram 400) would
+            # otherwise drop the message entirely — for a brake alert that's
+            # unacceptable. Retry once as plain text (tags stripped) so the words
+            # always get through; the buttons (valid in plain mode) ride along.
+            log.warning("telegram %s send failed (%s) — retrying as plain text", parse_mode, exc)
+        plain: dict = {"chat_id": self._cfg.chat_id, "text": strip_tags(text)}
+        if reply_markup is not None:
+            plain["reply_markup"] = reply_markup
+        try:
+            resp = await self._http.post(f"{self._base}/sendMessage", json=plain)
+            resp.raise_for_status()
+        except Exception as exc:  # comms failure must not crash the brake
+            log.error("telegram send failed (plain fallback too): %s", exc)
 
     async def answer_callback(self, callback_id: str, text: str = "") -> None:
         """Acknowledge an inline-button tap so Telegram clears the loading spinner."""
