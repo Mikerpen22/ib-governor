@@ -198,12 +198,17 @@ def _serialize_positions(portfolio_items) -> list[dict]:
 
 
 def _finite_or_none(value) -> float | None:
-    """Parse a reqPnL field to a finite float, or None (missing/nan/inf/unparseable)."""
+    """Parse a reqPnL field to a usable float, or None. None covers missing /
+    unparseable / nan / inf AND the IBKR UNSET sentinel (~1.79e308) — which IS
+    finite, so it would otherwise render as a phantom 309-digit P&L. Same guard
+    snapshot._finite_float and runner._usable_float already apply."""
     try:
         v = float(value)
     except (TypeError, ValueError):
         return None
-    return v if math.isfinite(v) else None
+    if not math.isfinite(v) or abs(v) >= _PNL_SENTINEL_THRESHOLD:
+        return None
+    return v
 
 
 def fetch_account_pnl(ib, account: str) -> dict:

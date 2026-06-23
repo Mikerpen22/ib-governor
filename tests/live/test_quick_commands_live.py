@@ -20,6 +20,7 @@ Read-only, distinct client id (runs alongside the live daemon on clientId 4).
 from __future__ import annotations
 
 import datetime as dt
+import math
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -152,8 +153,11 @@ def test_pnl_panel_matches_real_reqpnl(ib):
         ib.reqPnL(account)
     ib.sleep(2.0)  # let the subscription settle before reading
     pnls = ib.pnl()
-    if not pnls or pnls[0].dailyPnL != pnls[0].dailyPnL:  # nan -> not settled
-        pytest.skip("reqPnL did not settle a daily figure on this connection")
+    # Skip unless the daily figure is a real settled number — nan OR the IBKR
+    # UNSET sentinel (~1.79e308, finite) both mean "not settled"; asserting on a
+    # sentinel would pass with both sides phantom.
+    if not pnls or not math.isfinite(pnls[0].dailyPnL) or abs(pnls[0].dailyPnL) >= 1e12:
+        pytest.skip("reqPnL daily figure not settled (nan/sentinel) on this connection")
     daily_ref = pnls[0].dailyPnL
 
     got = fetch_account_pnl(ib, account)

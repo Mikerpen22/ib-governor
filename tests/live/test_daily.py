@@ -178,6 +178,16 @@ def test_fetch_account_pnl_maps_nan_and_inf_to_none():
     assert out["unrealized"] == pytest.approx(-10.0)
 
 
+def test_fetch_account_pnl_maps_unset_sentinel_to_none():
+    """IBKR sends the UNSET sentinel (~1.79e308, which IS finite) for a reqPnL
+    field before it settles — it must map to None, not a phantom 309-digit P&L."""
+    ib = SimpleNamespace(pnl=lambda *a: [_pnl_obj(_SENTINEL, -_SENTINEL, -10.0)],
+                         reqPnL=_no_resubscribe)
+    out = fetch_account_pnl(ib, "U1")
+    assert out["daily"] is None and out["realized"] is None
+    assert out["unrealized"] == pytest.approx(-10.0)
+
+
 def test_fetch_account_pnl_is_all_none_when_reqpnl_raises():
     def boom(acct):
         raise RuntimeError("no subscription")
