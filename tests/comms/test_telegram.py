@@ -66,14 +66,15 @@ async def test_poll_filters_by_chat_and_advances_offset():
 async def test_poll_surfaces_callback_taps_from_our_chat_only():
     updates = {"ok": True, "result": [
         {"update_id": 8, "callback_query": {"id": "cb1", "data": "confirm:ABCDEF12",
-                                            "message": {"chat": {"id": 42}}}},
+                                            "message": {"message_id": 555, "chat": {"id": 42}}}},
         {"update_id": 9, "callback_query": {"id": "cb2", "data": "confirm:DEADBEEF",
-                                            "message": {"chat": {"id": 99}}}},  # stranger
+                                            "message": {"message_id": 7, "chat": {"id": 99}}}},  # stranger
     ]}
     c = TelegramClient(TelegramConfig(bot_token="T", chat_id="42"), FakeHTTP(updates))
     texts, callbacks, new_offset = await c.poll(offset=0)
     assert texts == []
-    assert callbacks == [{"id": "cb1", "data": "confirm:ABCDEF12"}]   # stranger's tap filtered
+    # stranger's tap filtered; message_id is surfaced so the card can be edited in place
+    assert callbacks == [{"id": "cb1", "data": "confirm:ABCDEF12", "message_id": 555}]
     assert new_offset == 10
 
 
@@ -167,3 +168,48 @@ async def test_plain_send_failure_does_not_retry():
     c = TelegramClient(TelegramConfig(bot_token="T", chat_id="42"), http)
     await c.send("hello")                         # no parse_mode
     assert len(http.posts) == 1
+
+
+# --- message_id (so a later tap can edit the card) + editMessageText ---
+
+@pytest.mark.asyncio
+async def test_send_returns_message_id():
+    class IdHTTP:
+        async def post(self, url, json):
+            return FakeResp({"ok": True, "result": {"message_id": 4242}})
+        async def get(self, url, params):
+            return FakeResp({"ok": True, "result": []})
+
+    c = TelegramClient(TelegramConfig(bot_token="T", chat_id="42"), IdHTTP())
+    assert await c.send("hi") == 4242
+
+
+@pytest.mark.asyncio
+async def test_send_message_id_is_none_when_absent():
+    http = FakeHTTP()                             # FakeResp has no "result"
+    c = TelegramClient(TelegramConfig(bot_token="T", chat_id="42"), http)
+    assert await c.send("hi") is None
+
+
+@pytest.mark.asyncio
+async def test_edit_message_posts_to_edit_endpoint():
+    http = FakeHTTP()
+    c = TelegramClient(TelegramConfig(bot_token="T", chat_id="42"), http)
+    ok = await c.edit_message(555, "<b>done</b>", parse_mode="HTML")
+    assert ok is True
+    url, body = http.posts[0]
+    assert url.endswith("/editMessageText")
+    assert body["chat_id"] == "42" and body["message_id"] == 555
+    assert body["text"] == "<b>done</b>" and body["parse_mode"] == "HTML"
+
+
+@pytest.mark.asyncio
+async def test_edit_message_returns_false_on_error():
+    class FailHTTP:
+        async def post(self, url, json):
+            return _RaiseResp(RuntimeError("400 message not found"))
+        async def get(self, url, params):
+            return FakeResp({"ok": True, "result": []})
+
+    c = TelegramClient(TelegramConfig(bot_token="T", chat_id="42"), FailHTTP())
+    assert await c.edit_message(1, "x") is False

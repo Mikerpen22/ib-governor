@@ -10,8 +10,8 @@ from __future__ import annotations
 import governor.live.daemon as daemon_mod
 from governor.actions.lockout import LockoutStore
 from governor.actions.tokens import ConfirmTokenGate
-from governor.config import RulesConfig
-from governor.live.daemon import BrakeDaemon
+from governor.config import RulesConfig, TelegramConfig
+from governor.live.daemon import BrakeDaemon, _confirm_keyboard
 from governor.model import ActionType, AssetClass, Severity, StateSnapshot, Trip
 
 
@@ -42,7 +42,7 @@ def _daemon(tmp_path, config=None, token="TOK1"):
     d.tokens = ConfirmTokenGate(300, token_factory=lambda: token)
     d.lockout_store = LockoutStore(tmp_path / "l.json")
     d._alerts = []
-    d.alert = d._alerts.append          # loud brake alerts
+    d.alert = lambda text, **kw: d._alerts.append(text)   # loud brake alerts (drop kwargs)
     d._replies = []                     # chat replies (telegram-only)
     d._reply_tokens = []                # token passed per reply (None unless buttons attached)
 
@@ -219,6 +219,85 @@ async def test_cancel_button_tap_discards_staged_order(tmp_path, monkeypatch):
 
     assert consumed == ["A1B2C3D4E5F60789"]
     assert any("ancel" in r for r in d._replies)   # "Cancelled"
+
+
+class _FakeTelegram:
+    """Records edit_message / send so the in-place card-edit path is observable."""
+    def __init__(self, edit_ok=True):
+        self.edits = []
+        self.sends = []
+        self._edit_ok = edit_ok
+
+    async def edit_message(self, message_id, text, parse_mode=None, reply_markup=None):
+        self.edits.append((message_id, text))
+        return self._edit_ok
+
+    async def send(self, text, parse_mode=None, reply_markup=None):
+        self.sends.append(text)
+        return 1
+
+    async def answer_callback(self, *a, **k):
+        pass
+
+
+# --- namespaced keyboards: order taps vs circuit-breaker action taps ---
+
+def test_order_keyboard_uses_confirm_namespace():
+    kb = _confirm_keyboard("A1B2C3D4E5F60789")            # default kind="order"
+    btns = kb["inline_keyboard"][0]
+    assert btns[0]["callback_data"] == "confirm:A1B2C3D4E5F60789"   # → gate submit
+    assert btns[1]["callback_data"] == "cancel:A1B2C3D4E5F60789"
+
+
+def test_action_keyboard_uses_action_namespace():
+    kb = _confirm_keyboard("A1B2C3D4", kind="action")
+    btns = kb["inline_keyboard"][0]
+    assert btns[0]["callback_data"] == "action:A1B2C3D4"            # → in-memory execute
+    assert btns[1]["callback_data"] == "cancel:A1B2C3D4"
+
+
+async def test_action_button_tap_executes_breaker_not_submit(tmp_path, monkeypatch):
+    """An 'action:<token>' tap runs the in-memory circuit-breaker action (trim) —
+    NOT the order gate-submit path."""
+    submit_calls = []
+
+    async def _fake_gate_submit(token, timeout):
+        submit_calls.append(token)
+        return 0, "{}", ""
+
+    monkeypatch.setattr(daemon_mod, "_gate_submit", _fake_gate_submit)
+
+    d = _daemon(tmp_path, token="A1B2C3D4")              # hex token: survives _normalize_token
+    d.handle([_trip(ActionType.TRIM_FUTURES)], _snap(), "briefing")   # stages it
+    await d.handle_callback("action:A1B2C3D4", callback_id="cb1")
+
+    assert len(d.executor.trims) == 1                    # circuit-breaker action executed
+    assert submit_calls == []                            # never touched the order path
+    assert any("xecuted" in r for r in d._replies)       # "executed" outcome reported
+
+
+async def test_confirm_tap_edits_card_in_place_when_message_id_known(tmp_path, monkeypatch):
+    async def _fake_gate_submit(token, timeout):
+        return 0, '{"action":"BUY","symbol":"ORCL","quantity":100,"placed":true,"dry_run":false}', ""
+
+    monkeypatch.setattr(daemon_mod, "_gate_submit", _fake_gate_submit)
+    d = _daemon(tmp_path)
+    d._telegram_cfg = TelegramConfig(bot_token="T", chat_id="1")     # enable telegram path
+    fake = _FakeTelegram(edit_ok=True)
+    d.telegram = fake
+    await d.handle_callback("confirm:A1B2C3D4E5F60789", callback_id="cb1", message_id=99)
+
+    assert len(fake.edits) == 1 and fake.edits[0][0] == 99           # the tapped card was edited
+    assert "PLACED" in fake.edits[0][1]
+    assert d._replies == []                                          # no second message spawned
+
+
+async def test_tap_falls_back_to_reply_when_edit_fails(tmp_path):
+    d = _daemon(tmp_path)
+    d._telegram_cfg = TelegramConfig(bot_token="T", chat_id="1")
+    d.telegram = _FakeTelegram(edit_ok=False)                        # edit rejected
+    await d._render_outcome("✅ Placed", message_id=555)
+    assert d._replies == ["✅ Placed"]                               # fell back to a fresh reply
 
 
 async def test_disabled_agent_ignores_natural_language(tmp_path, monkeypatch):

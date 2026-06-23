@@ -187,16 +187,23 @@ def staged_action_message(action_value: str, mode: str, ttl_seconds: float, toke
     it stays copy-pasteable (and a literal substring) regardless of formatting."""
     return joinsections(
         f"{header('🟡', f'Staged action ({mode})')}: {code(action_value)}.",
-        f"Reply {code('CONFIRM ' + token)} within {int(ttl_seconds)}s to proceed.",
+        f"Tap below, or reply {code('CONFIRM ' + token)}, within {int(ttl_seconds)}s to proceed.",
     )
 
 
-def _confirm_keyboard(token: str) -> dict:
-    """Inline keyboard so the user taps ✅/✖️ instead of typing a 16-char token.
-    The token still rides in callback_data, so the safety model is unchanged —
-    placement still flows through gate submit; taps are just a nicer transport."""
+def _confirm_keyboard(token: str, kind: str = "order") -> dict:
+    """Inline keyboard so the user taps instead of typing a token. The token rides
+    in callback_data, so the safety model is unchanged — taps are just a nicer
+    transport. `kind` namespaces the tap so it routes to the right path:
+      - "order"  → confirm:<token>  → gate submit (the order write chokepoint)
+      - "action" → action:<token>   → in-memory circuit-breaker execute
+    Cancel is shared (cancel:<token>)."""
+    if kind == "action":
+        go_text, go_data = "✅ Confirm", f"action:{token}"
+    else:
+        go_text, go_data = "✅ Place order", f"confirm:{token}"
     return {"inline_keyboard": [[
-        {"text": "✅ Place order", "callback_data": f"confirm:{token}"},
+        {"text": go_text, "callback_data": go_data},
         {"text": "✖️ Cancel", "callback_data": f"cancel:{token}"},
     ]]}
 
@@ -255,16 +262,19 @@ class BrakeDaemon:
         self.handle(trips, snap, reason)
         return trips
 
-    def alert(self, text: str) -> None:
+    def alert(self, text: str, *, action_token: str | None = None) -> None:
         """Loud brake notification: telegram (HTML) + macOS banner + WARNING log.
         `text` is HTML; the log + banner get the tags stripped so they stay
         readable, telegram gets the formatted version (with a plain-text fallback
-        inside send() if the markup is ever rejected)."""
+        inside send() if the markup is ever rejected). When *action_token* is
+        given, attach ✅/✖️ buttons so a staged circuit-breaker action can be
+        confirmed with a tap (routes to action:<token>)."""
         plain = strip_tags(text)
         log.warning(plain)
         macos_notify("Brake", plain)
         if self._telegram_cfg.enabled:
-            asyncio.ensure_future(self.telegram.send(text, parse_mode="HTML"))
+            markup = _confirm_keyboard(action_token, kind="action") if action_token else None
+            asyncio.ensure_future(self.telegram.send(text, parse_mode="HTML", reply_markup=markup))
 
     def handle(self, trips, snap, reason) -> None:
         self._last_built = self._now()
@@ -303,7 +313,8 @@ class BrakeDaemon:
             token = self.tokens.issue(payload=t, now=self._now(), dedup_key=t.action.value)
             mode = "DRY-RUN" if self.config.live.dry_run else "ARMED"
             self.alert(staged_action_message(t.action.value, mode,
-                                              self.config.live.confirm_ttl_seconds, token))
+                                             self.config.live.confirm_ttl_seconds, token),
+                       action_token=token)
 
         cleared = self._active_soft_keys - current_rule_ids
         if cleared:
@@ -315,7 +326,8 @@ class BrakeDaemon:
                      snap.futures_realized_pnl_today, snap.futures_trade_count_today)
 
     def on_confirm(self, reply_text: str) -> bool:
-        """Confirm a staged circuit-breaker ACTION (in-memory token).
+        """Confirm a staged circuit-breaker ACTION (in-memory token) from a typed
+        message.
 
         Returns True iff a live token matched and the action was dispatched —
         so the message router knows whether to keep looking (order / NL).
@@ -327,6 +339,17 @@ class BrakeDaemon:
         self.alert(f"✅ confirmed: {code(trip.action.value)} — executing.")
         self._execute(trip.action)
         return True
+
+    def _confirm_action(self, token: str) -> str:
+        """Confirm a staged circuit-breaker ACTION from a button tap. Same token
+        gate + executor as on_confirm, but returns an outcome string so the tapped
+        card can be edited in place. A failed execute alerts loudly via _execute."""
+        pending = self.tokens.verify(token, self._now())
+        if pending is None:
+            return "⏳ That action expired or was already used — re-trigger it if you still want it."
+        trip = pending.payload
+        self._execute(trip.action)
+        return f"✅ {b('Confirmed')} — {code(trip.action.value)} executed."
 
     async def _reply(self, text: str, token: str | None = None) -> None:
         """Send a CHAT reply — telegram only. Distinct from alert(), which is for
@@ -372,9 +395,15 @@ class BrakeDaemon:
         # CONFIRM token) attach ✅/✖️ buttons; a BLOCK / clarifying reply has none.
         await self._reply(esc(reply), token=_confirm_token(reply))
 
-    async def handle_callback(self, data: str, callback_id: str | None = None) -> None:
-        """Handle an inline-button tap. `data` is 'confirm:<token>' / 'cancel:<token>'.
-        Same safety path as a typed CONFIRM — the token gates placement."""
+    async def handle_callback(self, data: str, callback_id: str | None = None,
+                              message_id: int | None = None) -> None:
+        """Handle an inline-button tap. `data` is namespaced by what it confirms:
+          - 'confirm:<token>' → place a staged ORDER via the gate submit chokepoint
+          - 'action:<token>'  → execute a staged circuit-breaker ACTION (in-memory)
+          - 'cancel:<token>'  → discard a staged order
+        Same safety path as a typed CONFIRM — the token gates the action. When
+        *message_id* is known, the tapped card is edited in place into its outcome
+        (and the keyboard dropped) instead of spawning a second message."""
         action, _, raw = data.partition(":")
         token = _normalize_token(raw)
         if token is None:                       # malformed/forged tap → tell the user, do nothing
@@ -384,9 +413,22 @@ class BrakeDaemon:
         if callback_id is not None and self._telegram_cfg.enabled:
             await self.telegram.answer_callback(callback_id)  # clear the tap spinner
         if action == "confirm":
-            await self._reply(await self._submit_staged_order(token))
+            outcome = await self._submit_staged_order(token)
+        elif action == "action":
+            outcome = self._confirm_action(token)
         elif action == "cancel":
-            await self._reply(await self._cancel_staged_order(token))
+            outcome = await self._cancel_staged_order(token)
+        else:                                   # unknown namespace → ignore quietly
+            return
+        await self._render_outcome(outcome, message_id)
+
+    async def _render_outcome(self, text: str, message_id: int | None) -> None:
+        """Show the result of a tap. Edit the tapped card in place when we know its
+        id (one clean card, keyboard gone); otherwise fall back to a fresh reply."""
+        if message_id is not None and self._telegram_cfg.enabled and \
+                await self.telegram.edit_message(message_id, text, parse_mode="HTML"):
+            return
+        await self._reply(text)
 
     async def _cancel_staged_order(self, token: str) -> str:
         """Consume + discard a staged order so it can't be confirmed later. Shares
@@ -534,7 +576,7 @@ class BrakeDaemon:
 
     async def _safe_handle_callback(self, cb: dict) -> None:
         try:
-            await self.handle_callback(cb.get("data", ""), cb.get("id"))
+            await self.handle_callback(cb.get("data", ""), cb.get("id"), cb.get("message_id"))
         except Exception as exc:  # noqa: BLE001
             log.error("handling telegram callback failed: %s", exc)
 
