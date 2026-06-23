@@ -218,7 +218,7 @@ def fetch_account_pnl(ib, account: str) -> dict:
     'n/a', never a phantom number."""
     blank = {"daily": None, "realized": None, "unrealized": None}
     try:
-        existing = [p for p in ib.pnl() if not account or getattr(p, "account", None) == account]
+        existing = ib.pnl(account)  # filtered to the account; warm subscription if present
         pnl = existing[0] if existing else ib.reqPnL(account)
     except Exception:  # noqa: BLE001 — a P&L read must never crash the caller
         return blank

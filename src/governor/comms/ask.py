@@ -94,13 +94,13 @@ def _usd(x: float) -> str:
 
 
 def _signed_usd(x: float) -> str:
-    """'+$265' / '-$3,637' / '$0' — explicit sign for a P&L figure."""
-    s = f"${abs(float(x)):,.0f}"
-    if float(x) > 0:
-        return f"+{s}"
-    if float(x) < 0:
-        return f"-{s}"
-    return s
+    """'+$265' / '-$3,637' / '$0' — _usd with an explicit + for positives."""
+    return f"+{_usd(x)}" if float(x) > 0 else _usd(x)
+
+
+def _mood(amount: float | None) -> str:
+    """🟢 when non-negative (None treated as flat), else 🔴."""
+    return "🟢" if (amount if amount is not None else 0.0) >= 0 else "🔴"
 
 
 _PNL_ROWS = (("Daily", "daily"), ("Realized", "realized"), ("Unrealized", "unrealized"))
@@ -147,7 +147,7 @@ def _fmt_pnl(view: dict) -> str:
         return _fmt_pnl_fallback(view)
 
     daily = values["daily"]
-    mood = "🟢" if (daily if daily is not None else 0.0) >= 0 else "🔴"
+    mood = _mood(daily)
 
     rows: list[tuple[str, str, str]] = []
     for label, key in _PNL_ROWS:
@@ -174,7 +174,7 @@ def _fmt_pnl_fallback(view: dict) -> str:
     HONESTLY labeled (no 'so far today' on the cumulative number)."""
     realized = float(view.get("realized_pnl_today", 0.0) or 0.0)
     open_book = sum(float(p.get("unrealized_pnl", 0.0) or 0.0) for p in view.get("positions", []))
-    mood = "🟢" if realized >= 0 else "🔴"
+    mood = _mood(realized)
     return section(header(mood, "P&L"), [
         f"Realized today {b(_signed_usd(realized))}.",
         f"Open book {b(_signed_usd(open_book))} {i('(unrealized, all positions)')}.",
