@@ -30,6 +30,7 @@ import argparse
 import datetime as dt
 import json
 import logging
+import math
 from zoneinfo import ZoneInfo
 
 from ib_async import Index, Stock
@@ -196,6 +197,43 @@ def _serialize_positions(portfolio_items) -> list[dict]:
     return positions
 
 
+def _finite_or_none(value) -> float | None:
+    """Parse a reqPnL field to a finite float, or None (missing/nan/inf/unparseable)."""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    return v if math.isfinite(v) else None
+
+
+def fetch_account_pnl(ib, account: str) -> dict:
+    """Account-level P&L from ib.reqPnL: {daily, realized, unrealized} (floats or
+    None per field). Never raises — a missing reqPnL / stream error / unsettled
+    (nan) field yields None, so the caller renders 'n/a', never a phantom number."""
+    blank = {"daily": None, "realized": None, "unrealized": None}
+    try:
+        pnl = ib.reqPnL(account)
+    except Exception:  # noqa: BLE001 — a P&L read must never crash the caller
+        return blank
+    return {
+        "daily": _finite_or_none(getattr(pnl, "dailyPnL", None)),
+        "realized": _finite_or_none(getattr(pnl, "realizedPnL", None)),
+        "unrealized": _finite_or_none(getattr(pnl, "unrealizedPnL", None)),
+    }
+
+
+def _account_id(ib, config: RulesConfig) -> str:
+    """The account code for reqPnL: configured account, else the first managed
+    account, else '' (fetch_account_pnl then degrades to all-None)."""
+    if config.live.account:
+        return config.live.account
+    try:
+        accounts = ib.managedAccounts()
+        return accounts[0] if accounts else ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def collect_account_view(ib, config: RulesConfig, now: dt.datetime) -> dict:
     """The connection-CHEAP subset of collect_day_data: account metrics + today's
     fills + positions + realized P&L, with NO market backdrop (collect_day_data's
@@ -223,6 +261,7 @@ def collect_account_view(ib, config: RulesConfig, now: dt.datetime) -> dict:
         "realized_pnl_today": realized_pnl_today,
         "fills": _serialize_fills(today_fills),
         "positions": _serialize_positions(ib.portfolio()),
+        "pnl": fetch_account_pnl(ib, _account_id(ib, config)),
     }
 
 

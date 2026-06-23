@@ -27,7 +27,7 @@ from ..comms.notify import notify as macos_notify
 from ..comms.proc import run_capture
 from ..comms.telegram import TelegramClient
 from ..config import RulesConfig, load_config, load_env_file, telegram_from_env
-from ..gate.staged import DEFAULT_STAGED_PATH, StagedOrderStore
+from ..gate.staged import StagedOrderStore, resolve_staged_path
 from ..model import ActionType, Severity, StateSnapshot, Trip
 from ..rules.engine import evaluate
 from ..state.hwm import HwmStore
@@ -35,7 +35,7 @@ from ..state.json_store import StateFileError
 from ..state.trade_log import WeeklyTradeLog
 from .builder import build_live_snapshot
 from .connection import BrakeConnection
-from .daily import collect_account_view
+from .daily import _account_id, collect_account_view
 from .sector import SectorResolver
 from .snapshot import contract_symbol, is_sec_type
 
@@ -304,6 +304,15 @@ class BrakeDaemon:
             log.error("account view failed: %s", exc)
             return None
 
+    def _subscribe_pnl(self) -> None:
+        """Open the account-level reqPnL subscription once so the quick-answer
+        /pnl reads are warm (sub-second). Best-effort — a failure must not block
+        startup; fetch_account_pnl degrades to 'n/a' if the stream never arrives."""
+        try:
+            self.ib.reqPnL(_account_id(self.ib, self.config))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("reqPnL subscribe failed (P&L will read n/a): %s", exc)
+
     def alert(self, text: str, *, action_token: str | None = None) -> None:
         """Loud brake notification: telegram (HTML) + macOS banner + WARNING log.
         `text` is HTML; the log + banner get the tags stripped so they stay
@@ -511,7 +520,7 @@ class BrakeDaemon:
         """Consume + discard a staged order so it can't be confirmed later. Shares
         the placement lock so a cancel can't race a concurrent confirm of the same
         token (both consuming the non-atomic staged file)."""
-        store = StagedOrderStore(DEFAULT_STAGED_PATH,
+        store = StagedOrderStore(resolve_staged_path(),
                                  ttl_seconds=self.config.live.confirm_ttl_seconds)
         async with self._place_lock:
             try:
@@ -683,6 +692,7 @@ class BrakeDaemon:
 
     def run(self) -> None:
         self.conn.connect()
+        self._subscribe_pnl()
         self.ib.commissionReportEvent += self._on_commission
         self.ib.errorEvent += self._on_error
         self.ib.disconnectedEvent += self._on_disconnect
@@ -696,11 +706,20 @@ class BrakeDaemon:
         self.ib.run()  # loop.run_forever()
 
 
-def main() -> None:
+def _configure_logging() -> None:
+    """Root logging for the daemon. Raise the httpx logger to WARNING: it logs
+    every request URL at INFO, and the Telegram Bot API embeds the bot token in
+    the URL path (/bot<TOKEN>/getUpdates), so on each poll the token was written
+    to the log file in plaintext. WARNING+ still surfaces real HTTP failures."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
+
+def main() -> None:
+    _configure_logging()
     load_env_file()  # populate Telegram creds from .env before telegram_from_env() reads them
     config = load_config("config/rules.yaml")
     BrakeDaemon(config).run()

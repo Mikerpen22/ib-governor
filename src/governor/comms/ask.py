@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from .format import b, code, header, i, joinsections, section
+from .format import b, code, header, i, joinsections, pre, section
 
 
 class Intent(str, Enum):
@@ -93,6 +93,19 @@ def _usd(x: float) -> str:
     return f"-{s}" if float(x) < 0 else s
 
 
+def _signed_usd(x: float) -> str:
+    """'+$265' / '-$3,637' / '$0' — explicit sign for a P&L figure."""
+    s = f"${abs(float(x)):,.0f}"
+    if float(x) > 0:
+        return f"+{s}"
+    if float(x) < 0:
+        return f"-{s}"
+    return s
+
+
+_PNL_ROWS = (("Daily", "daily"), ("Realized", "realized"), ("Unrealized", "unrealized"))
+
+
 def _qty(x: float) -> str:
     x = float(x)
     return str(int(x)) if x.is_integer() else f"{x:g}"
@@ -123,14 +136,49 @@ def _fmt_cushion(view: dict) -> str:
 
 
 def _fmt_pnl(view: dict) -> str:
-    realized = float(view.get("realized_pnl_today", 0.0))
-    unrealized = sum(float(p.get("unrealized_pnl", 0.0) or 0.0)
-                     for p in view.get("positions", []))
-    total = realized + unrealized
-    mood = "🟢" if total >= 0 else "🔴"
-    return section(header(mood, "P&L today"), [
-        f"Realized {b(_usd(realized))} · open {b(_usd(unrealized))}.",
-        f"Net {b(_usd(total))} so far today.",
+    """Daily / Realized / Unrealized, each in $ and % of NAV, in an aligned
+    monospace panel. Daily is today's true account MTM (reqPnL.dailyPnL); the
+    three are distinct views, NOT addends. Degrades to a labeled fallback when
+    live P&L is unavailable, so the answer is never blank or misleading."""
+    pnl = view.get("pnl") or {}
+    nav = float(view.get("nav", 0.0) or 0.0)
+    values = {key: pnl.get(key) for _, key in _PNL_ROWS}
+    if all(v is None for v in values.values()):
+        return _fmt_pnl_fallback(view)
+
+    daily = values["daily"]
+    mood = "🟢" if (daily if daily is not None else 0.0) >= 0 else "🔴"
+
+    rows: list[tuple[str, str, str]] = []
+    for label, key in _PNL_ROWS:
+        v = values[key]
+        if v is None:
+            rows.append((label, "n/a", ""))
+        else:
+            pct = f"{v / nav:+.2%}" if nav > 0 else ""
+            rows.append((label, _signed_usd(v), pct))
+
+    lw = max(len(r[0]) for r in rows)
+    dw = max(len(r[1]) for r in rows)
+    pw = max(len(r[2]) for r in rows)
+    table = "\n".join(
+        f"{label.ljust(lw)}  {dollar.rjust(dw)}  {pct.rjust(pw)}".rstrip()
+        for label, dollar, pct in rows
+    )
+    footer = i(f"% of NAV {_usd(nav)}") if nav > 0 else ""
+    return joinsections(header(mood, "P&L — today"), pre(table), footer)
+
+
+def _fmt_pnl_fallback(view: dict) -> str:
+    """No live reqPnL data: show realized-today + the cumulative open book, each
+    HONESTLY labeled (no 'so far today' on the cumulative number)."""
+    realized = float(view.get("realized_pnl_today", 0.0) or 0.0)
+    open_book = sum(float(p.get("unrealized_pnl", 0.0) or 0.0) for p in view.get("positions", []))
+    mood = "🟢" if realized >= 0 else "🔴"
+    return section(header(mood, "P&L"), [
+        f"Realized today {b(_signed_usd(realized))}.",
+        f"Open book {b(_signed_usd(open_book))} {i('(unrealized, all positions)')}.",
+        i("Live daily P&L unavailable right now."),
     ])
 
 

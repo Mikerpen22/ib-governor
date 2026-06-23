@@ -46,7 +46,7 @@ from governor.gate.intent import (
 )
 from governor.gate.order_catalog import TIF_CHOICES, render_table
 from governor.gate.runner import analyze_intent, submit_intent
-from governor.gate.staged import DEFAULT_STAGED_PATH, StagedOrderStore
+from governor.gate.staged import StagedOrderStore, resolve_staged_path
 from governor.live.builder import build_live_snapshot
 from governor.live.connection import BrakeConnection
 from governor.live.sector import SectorResolver
@@ -89,9 +89,10 @@ def _make_connection(config: RulesConfig) -> BrakeConnection:
 
 
 def _staged_path(config: RulesConfig) -> Path:
-    """Return the Path for the staged-orders file (the shared, repo-anchored
-    source of truth — also used by the daemon's cancel path)."""
-    return DEFAULT_STAGED_PATH
+    """Return the Path for the staged-orders file (the shared source of truth —
+    also used by the daemon's cancel path). Env-overridable via
+    GOVERNOR_STAGED_PATH so a test can isolate it from the live daemon's file."""
+    return resolve_staged_path()
 
 
 def build_current_snapshot(ib, config: RulesConfig):

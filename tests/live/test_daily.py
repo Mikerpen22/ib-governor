@@ -14,8 +14,10 @@ import pytest
 from governor.config import RulesConfig
 from governor.live.daily import (
     VIX_ELEVATED_THRESHOLD,
+    collect_account_view,
     collect_day_data,
     collect_market_backdrop,
+    fetch_account_pnl,
 )
 
 ET = ZoneInfo("America/New_York")
@@ -133,6 +135,71 @@ def _fake_hist(bars_by_symbol: dict[str, list]):
 
 # Two daily bars (prev, latest): +1% move on a 100→101 close.
 _TWO_BARS_UP = [_bar(100.0), _bar(101.0)]
+
+
+# ---------------------------------------------------------------------------
+# Tests: fetch_account_pnl (reqPnL seam)
+# ---------------------------------------------------------------------------
+
+def _pnl_obj(daily, realized, unrealized):
+    return SimpleNamespace(dailyPnL=daily, realizedPnL=realized, unrealizedPnL=unrealized)
+
+
+def test_fetch_account_pnl_maps_fields():
+    ib = SimpleNamespace(reqPnL=lambda acct: _pnl_obj(-3637.4, 265.4, -9098.9))
+    out = fetch_account_pnl(ib, "U1")
+    assert out == {"daily": pytest.approx(-3637.4),
+                   "realized": pytest.approx(265.4),
+                   "unrealized": pytest.approx(-9098.9)}
+
+
+def test_fetch_account_pnl_maps_nan_and_inf_to_none():
+    ib = SimpleNamespace(reqPnL=lambda acct: _pnl_obj(float("nan"), float("inf"), -10.0))
+    out = fetch_account_pnl(ib, "U1")
+    assert out["daily"] is None and out["realized"] is None
+    assert out["unrealized"] == pytest.approx(-10.0)
+
+
+def test_fetch_account_pnl_is_all_none_when_reqpnl_raises():
+    def boom(acct):
+        raise RuntimeError("no subscription")
+    ib = SimpleNamespace(reqPnL=boom)
+    assert fetch_account_pnl(ib, "U1") == {"daily": None, "realized": None, "unrealized": None}
+
+
+def test_fetch_account_pnl_is_all_none_when_ib_lacks_reqpnl():
+    ib = SimpleNamespace()  # no reqPnL attribute
+    assert fetch_account_pnl(ib, "U1") == {"daily": None, "realized": None, "unrealized": None}
+
+
+# ---------------------------------------------------------------------------
+# Tests: collect_account_view carries the pnl dict
+# ---------------------------------------------------------------------------
+
+def test_collect_account_view_includes_pnl_from_reqpnl():
+    account_values = [
+        _account_value("NetLiquidation", "250000"),
+        _account_value("ExcessLiquidity", "125000"),
+        _account_value("GrossPositionValue", "200000"),
+    ]
+    ib = SimpleNamespace(
+        accountValues=lambda: account_values,
+        portfolio=lambda: [],
+        fills=lambda: [],
+        managedAccounts=lambda: ["U1"],
+        reqPnL=lambda acct: SimpleNamespace(dailyPnL=-1000.0, realizedPnL=50.0, unrealizedPnL=-2000.0),
+    )
+    view = collect_account_view(ib, RulesConfig(), _TODAY)
+    assert view["pnl"] == {"daily": pytest.approx(-1000.0),
+                           "realized": pytest.approx(50.0),
+                           "unrealized": pytest.approx(-2000.0)}
+    assert view["nav"] == pytest.approx(250000.0)  # existing keys intact
+
+
+def test_collect_account_view_pnl_all_none_without_reqpnl():
+    """Backward-compat: a fake ib lacking reqPnL/managedAccounts still works."""
+    view = collect_account_view(_fake_ib(), RulesConfig(), _TODAY)
+    assert view["pnl"] == {"daily": None, "realized": None, "unrealized": None}
 
 
 # ---------------------------------------------------------------------------

@@ -9,7 +9,9 @@ def test_defaults_ship_present_and_safe():
     assert isinstance(cfg, TelegramAgentConfig)
     assert cfg.enabled is True
     assert cfg.claude_bin == "claude"
-    assert cfg.timeout_seconds == 120
+    # 240s, not 120: the order agent's measured latency runs 60s–180s+; a 120s
+    # cap timed out on the slow tail and fell back to the failure message.
+    assert cfg.timeout_seconds == 240
 
 
 def test_overrides_from_yaml_dict():
