@@ -1,6 +1,6 @@
-# tests/comms/test_telegram.py
-import os
+import pytest
 
+from governor.comms.telegram import TelegramClient
 from governor.config import TelegramConfig, telegram_from_env
 
 
@@ -15,13 +15,6 @@ def test_telegram_from_env(monkeypatch):
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "999")
     cfg = telegram_from_env()
     assert cfg.bot_token == "123:abc" and cfg.chat_id == "999" and cfg.enabled
-
-
-# append to tests/comms/test_telegram.py
-import pytest
-
-from governor.comms.telegram import TelegramClient
-from governor.config import TelegramConfig
 
 
 class FakeResp:
