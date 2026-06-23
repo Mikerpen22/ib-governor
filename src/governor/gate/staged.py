@@ -19,6 +19,7 @@ Safety invariants:
 """
 from __future__ import annotations
 
+import os
 import secrets
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -31,6 +32,16 @@ from ..state.json_store import load_json, save_json
 # (cancel consumes), so they never diverge on which file they touch regardless
 # of the process's working directory. src/governor/gate/staged.py -> repo root.
 DEFAULT_STAGED_PATH = Path(__file__).resolve().parents[3] / "config" / "staged_orders.json"
+
+
+def resolve_staged_path() -> Path:
+    """The staged-order file path, overridable via the GOVERNOR_STAGED_PATH env
+    var (else DEFAULT_STAGED_PATH). The override lets a test — or a separate
+    deployment — point the gate AND daemon at an isolated file, so a test never
+    mutates the live daemon's production staged_orders.json. Production sets no
+    env, so the path (and behavior) is unchanged."""
+    override = os.environ.get("GOVERNOR_STAGED_PATH")
+    return Path(override) if override else DEFAULT_STAGED_PATH
 
 
 class StagedOrderStore:

@@ -1,5 +1,6 @@
 # tests/live/test_daemon_core.py
 import datetime as dt
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 from governor.config import LiveConfig, RulesConfig
@@ -31,3 +32,22 @@ def test_daemon_constructs_with_dry_run_false():
 def test_daemon_constructs_with_dry_run_true():
     # default dry_run is True -> constructs fine (no connection opened)
     assert BrakeDaemon(RulesConfig()) is not None
+
+
+def test_subscribe_pnl_calls_reqpnl_with_account():
+    d = BrakeDaemon(RulesConfig())
+    calls = []
+    d.conn.ib = SimpleNamespace(reqPnL=lambda acct: calls.append(acct),
+                                managedAccounts=lambda: ["U1"])
+    d._subscribe_pnl()
+    assert calls == ["U1"]
+
+
+def test_subscribe_pnl_swallows_errors():
+    d = BrakeDaemon(RulesConfig())
+
+    def boom(acct):
+        raise RuntimeError("no pnl subscription")
+
+    d.conn.ib = SimpleNamespace(reqPnL=boom, managedAccounts=lambda: ["U1"])
+    d._subscribe_pnl()  # must NOT raise

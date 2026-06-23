@@ -50,6 +50,12 @@ def code(s) -> str:
     return f"<code>{esc(s)}</code>"
 
 
+def pre(s) -> str:
+    """Monospace block — for aligned numeric tables (columns line up). Content is
+    escaped; Telegram requires & < > escaped even inside <pre>."""
+    return f"<pre>{esc(s)}</pre>"
+
+
 def header(emoji: str, title: str) -> str:
     """A bold section header anchored by an emoji: '💰 <b>Book</b>'."""
     return f"{emoji} {b(title)}"

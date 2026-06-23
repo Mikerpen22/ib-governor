@@ -8,8 +8,14 @@ plain-text fallback + macOS banner.
 from __future__ import annotations
 
 from governor.comms.format import (
-    b, code, esc, header, i, joinsections, section, strip_tags, u,
+    b, code, esc, header, i, joinsections, pre, section, strip_tags, u,
 )
+
+
+def test_pre_wraps_in_monospace_block_and_escapes():
+    assert pre("a\nb") == "<pre>a\nb</pre>"
+    # reserved chars inside a <pre> block must still be escaped
+    assert pre("x < y & z") == "<pre>x &lt; y &amp; z</pre>"
 
 
 def test_esc_escapes_the_three_reserved_chars():

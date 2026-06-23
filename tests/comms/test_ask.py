@@ -27,6 +27,13 @@ _VIEW = {
     ],
 }
 
+_PNL_VIEW = {
+    "nav": 341_756.0,
+    "realized_pnl_today": 265.0,
+    "positions": [],
+    "pnl": {"daily": -3637.0, "realized": 265.0, "unrealized": -9099.0},
+}
+
 
 # --- classify_message ---------------------------------------------------------
 
@@ -66,11 +73,39 @@ def test_cushion_answer_reports_percent():
     assert s is not None and "45%" in s
 
 
-def test_pnl_answer_sums_realized_and_open():
-    s = quick_answer("how am I doing", _VIEW)
+def test_pnl_panel_shows_daily_realized_unrealized_with_amount_and_pct():
+    s = quick_answer("how am I doing", _PNL_VIEW)
     assert s is not None
-    assert "$1,200" in s                        # realized
-    assert "$1,350" in s                        # net (1200 realized + 150 open)
+    assert "Daily" in s and "Realized" in s and "Unrealized" in s
+    assert "-$3,637" in s and "+$265" in s and "-$9,099" in s
+    # % of NAV: -3637/341756 = -1.06%, 265/341756 = +0.08%, -9099/341756 = -2.66%
+    assert "-1.06%" in s and "+0.08%" in s and "-2.66%" in s
+    assert "🔴" in s  # daily < 0 → red mood
+
+
+def test_pnl_panel_missing_field_renders_na():
+    view = {**_PNL_VIEW, "pnl": {"daily": None, "realized": 265.0, "unrealized": -9099.0}}
+    s = quick_answer("pnl", view)
+    assert "n/a" in s and "+$265" in s
+
+
+def test_pnl_panel_omits_percent_when_nav_nonpositive():
+    view = {**_PNL_VIEW, "nav": 0.0}
+    s = quick_answer("pnl", view)
+    assert "-$3,637" in s and "%" not in s
+
+
+def test_pnl_falls_back_when_pnl_absent():
+    """No reqPnL data (pnl all-None) → labeled fallback, never blank, never
+    'so far today' on a cumulative number."""
+    view = {"nav": 250_000.0, "realized_pnl_today": 1200.0,
+            "positions": [{"unrealized_pnl": 150.0}],
+            "pnl": {"daily": None, "realized": None, "unrealized": None}}
+    s = quick_answer("how am I doing", view)
+    assert s is not None
+    assert "+$1,200" in s              # realized today
+    assert "Open book" in s            # cumulative, honestly labeled
+    assert "so far today" not in s     # the old bug must not return
 
 
 def test_today_answer_lists_fills():

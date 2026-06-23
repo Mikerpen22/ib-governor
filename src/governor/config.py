@@ -34,7 +34,12 @@ class TelegramAgentConfig(BaseModel):
 
     enabled: bool = True
     claude_bin: str = "claude"             # CLI to invoke for the NL path
-    timeout_seconds: PositiveFloat = 120.0  # kill the agent subprocess after this
+    # Kill the agent subprocess after this. 240s (not 120): the order agent's
+    # measured end-to-end latency runs ~60s–180s+ (model reasoning, not the ~15s
+    # gate analyze), and a 120s cap timed out on the slow tail — the user then
+    # saw the graceful-failure message instead of the analysis. Override per
+    # deployment in rules.yaml's telegram_agent block.
+    timeout_seconds: PositiveFloat = 240.0
 
 
 def load_env_file(path: str | Path = ".env") -> None:

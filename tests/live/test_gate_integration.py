@@ -26,10 +26,19 @@ pytestmark = pytest.mark.integration
 ET = ZoneInfo("America/New_York")
 
 
+# Distinct, read-only client id so this runs ALONGSIDE the live daemon (clientId 4)
+# instead of colliding — a collision either skips this test or (worse) bumps the
+# daemon off TWS. 15 is clear of daemon=4 / gate=5 / daily=6 / technicals=7, the
+# read test (11), whatIf (12), paper (13), and the agent sandbox range (20-119).
+# analyze_intent is read-only by design, so readonly=True is the correct posture.
+_TEST_CLIENT_ID = 15
+
+
 @pytest.fixture(scope="module")
 def conn():
     cfg = load_config("config/rules.yaml")
-    c = BrakeConnection(cfg.live)
+    test_live = cfg.live.model_copy(update={"client_id": _TEST_CLIENT_ID, "readonly": True})
+    c = BrakeConnection(test_live)
     try:
         c.connect()
     except Exception as exc:  # noqa: BLE001

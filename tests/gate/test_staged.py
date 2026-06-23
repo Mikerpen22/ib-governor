@@ -28,6 +28,21 @@ def _store(tmp_path, ttl=TTL, factory=None):
     return StagedOrderStore(tmp_path / "staged.json", ttl_seconds=ttl, **kwargs)
 
 
+# ── staged-path resolution (env-overridable so tests/deploys can isolate it) ──
+
+def test_resolve_staged_path_defaults_to_repo_anchored(monkeypatch):
+    monkeypatch.delenv("GOVERNOR_STAGED_PATH", raising=False)
+    from governor.gate.staged import DEFAULT_STAGED_PATH, resolve_staged_path
+    assert resolve_staged_path() == DEFAULT_STAGED_PATH
+
+
+def test_resolve_staged_path_honors_env_override(monkeypatch, tmp_path):
+    from governor.gate.staged import resolve_staged_path
+    override = tmp_path / "isolated_staged.json"
+    monkeypatch.setenv("GOVERNOR_STAGED_PATH", str(override))
+    assert resolve_staged_path() == override
+
+
 # ── round-trip ─────────────────────────────────────────────────────────────────
 
 def test_stage_consume_roundtrip(tmp_path):
