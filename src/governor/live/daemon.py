@@ -782,6 +782,28 @@ class BrakeDaemon:
             await asyncio.sleep(self.config.live.staleness_seconds)
             self._refresh_if_stale()
 
+    def _check_weekly_relogin(self) -> None:
+        """One weekly-probe tick. After the Sunday 01:00 ET token reset the Gateway
+        needs a 2FA re-login; if the API is still down at probe time, send an
+        ACTIONABLE nudge (distinct from the generic BRAKE-BLIND) so the tap happens
+        before Monday's open. Edge-quiet when healthy."""
+        if self.ib.isConnected():
+            log.info("weekly probe: connection healthy")
+            return
+        self.alert(f"\U0001f510 {b('Weekly re-login required')}: the IBKR Sunday reset "
+                   f"logged the Gateway out. Approve the IBKR-Mobile push (or open the "
+                   f"Gateway) so the brake is live before Monday's open.")
+
+    async def _weekly_probe_loop(self) -> None:
+        while True:
+            now = self._now()
+            nxt = next_weekly_probe_dt(now, self.config.live.weekly_relogin_probe_et)
+            await asyncio.sleep(max(0.0, (nxt - now).total_seconds()))
+            try:
+                self._check_weekly_relogin()
+            except Exception as exc:  # noqa: BLE001 — a probe failure must not drop the loop
+                log.error("weekly probe failed: %s", exc)
+
     def run(self) -> None:
         self.conn.connect()
         self._subscribe_pnl()
@@ -795,6 +817,7 @@ class BrakeDaemon:
         asyncio.ensure_future(self._briefing_loop())
         asyncio.ensure_future(self._telegram_loop())
         asyncio.ensure_future(self._staleness_loop())
+        asyncio.ensure_future(self._weekly_probe_loop())
         self.ib.run()  # loop.run_forever()
 
 

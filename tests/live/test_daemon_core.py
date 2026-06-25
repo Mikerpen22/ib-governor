@@ -156,3 +156,21 @@ def test_reconnect_guard_prevents_concurrent_loops():
     # Already reconnecting -> the coroutine returns immediately without touching conn.
     asyncio.run(d._reconnect())
     assert d._reconnecting is True
+
+
+def test_weekly_probe_alerts_when_disconnected(monkeypatch):
+    d = BrakeDaemon(RulesConfig())
+    d.conn.ib = SimpleNamespace(isConnected=lambda: False)
+    msgs = []
+    monkeypatch.setattr(d, "alert", lambda text, **k: msgs.append(text))
+    d._check_weekly_relogin()
+    assert any("re-login" in m.lower() for m in msgs)
+
+
+def test_weekly_probe_quiet_when_connected(monkeypatch):
+    d = BrakeDaemon(RulesConfig())
+    d.conn.ib = SimpleNamespace(isConnected=lambda: True)
+    msgs = []
+    monkeypatch.setattr(d, "alert", lambda text, **k: msgs.append(text))
+    d._check_weekly_relogin()
+    assert msgs == []
