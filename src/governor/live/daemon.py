@@ -28,7 +28,7 @@ from ..comms.proc import run_capture
 from ..comms.telegram import TelegramClient
 from ..config import RulesConfig, load_config, load_env_file, telegram_from_env
 from ..gate.staged import StagedOrderStore, resolve_staged_path
-from ..model import ActionType, Severity, StateSnapshot, Trip
+from ..model import ActionType, StateSnapshot, Trip
 from ..rules.engine import evaluate
 from ..state.hwm import HwmStore
 from ..state.json_store import StateFileError
@@ -256,7 +256,7 @@ class BrakeDaemon:
         self.trade_log = WeeklyTradeLog("config/trade_log.json")
         self._last_built = None
         self._last_executed: dict[str, dt.datetime] = {}  # action.value -> last successful execute (cooldown)
-        self._active_soft_keys: set[str] = set()  # rule_ids of standing WARN/INFO trips already announced (edge-triggered alerts)
+        self._announced_keys: set[str] = set()  # rule_ids of standing trips already announced (edge-triggered alerts; any severity)
         self._tg_offset = 0
         # Serialize order placement/cancel so two near-simultaneous taps/types of
         # the same token can't both consume it and double-submit (the staged-file
@@ -342,15 +342,16 @@ class BrakeDaemon:
                 if lk:
                     self.alert(f"⚠️ {b('LOCKOUT VIOLATION')}: you traded futures while a {esc(lk.kind)} "
                                f"lockout is active (until {lk.until:%H:%M}, reason: {esc(lk.reason)}).")
-        # Edge-triggered soft alerts: a standing WARN/INFO (e.g. sector concentration)
-        # is announced ONCE when it appears and stays quiet while it persists — so the
-        # 3x/day briefings don't re-spam it. HARD trips always alert (they stage actions
-        # and matter every time). A soft trip that later clears gets a one-line "cleared".
+        # Edge-triggered alerts: a standing trip (ANY severity) is announced ONCE
+        # when it appears and stays quiet while it persists — so the staleness
+        # refresh (~every 270s) and the 3x/day briefings don't re-spam a condition
+        # that holds all day (e.g. the futures losing-streak limit / platform-off).
+        # A trip that clears gets a one-line "cleared"; if it later re-trips, the
+        # edge re-arms and it alerts (so a NEW episode is never missed).
         current_rule_ids = {t.rule_id for t in trips}
-        new_soft_keys = {t.rule_id for t in trips if t.severity is not Severity.HARD}
         for t in trips:
-            if t.severity is not Severity.HARD and t.rule_id in self._active_soft_keys:
-                continue  # standing WARN/INFO already announced — don't repeat it
+            if t.rule_id in self._announced_keys:
+                continue  # standing trip already announced — don't repeat it
             self.alert(rule_alert(t))
             if t.action not in _ACTIONABLE:
                 continue
@@ -367,10 +368,10 @@ class BrakeDaemon:
                                              self.config.live.confirm_ttl_seconds, token),
                        action_token=token)
 
-        cleared = self._active_soft_keys - current_rule_ids
+        cleared = self._announced_keys - current_rule_ids
         if cleared:
             self.alert(f"✅ cleared: {esc(', '.join(sorted(cleared)))}")
-        self._active_soft_keys = new_soft_keys
+        self._announced_keys = current_rule_ids
 
         if not trips:
             log.info("[%s] OK nav=%.0f fut_pnl=%.0f trades=%d", reason, snap.nav,
