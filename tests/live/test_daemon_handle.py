@@ -185,12 +185,36 @@ def test_cleared_warn_announced_then_rearmed(tmp_path):
     assert sum("sector_concentration" in a for a in d._alerts) == 1
 
 
-def test_hard_trip_alerts_every_time(tmp_path):
-    """HARD trips are NOT edge-suppressed — they alert on every evaluation."""
+def test_standing_hard_trip_alerts_once_then_suppressed(tmp_path):
+    """A standing HARD trip (e.g. the futures losing-streak limit) is announced
+    ONCE, then stays quiet while it persists — no 270s staleness-refresh re-spam."""
     d = _daemon(tmp_path)
-    d.handle([_trip(ActionType.ALERT_ONLY)], _snap(), "briefing")   # _trip is HARD
-    d.handle([_trip(ActionType.ALERT_ONLY)], _snap(), "briefing")
-    assert sum("[hard]" in a for a in d._alerts) == 2
+    d.handle([_trip(ActionType.ALERT_ONLY)], _snap(), "briefing")    # _trip is HARD
+    d.handle([_trip(ActionType.ALERT_ONLY)], _snap(), "staleness")
+    d.handle([_trip(ActionType.ALERT_ONLY)], _snap(), "staleness")
+    assert sum("[hard]" in a for a in d._alerts) == 1
+
+
+def test_standing_hard_action_stages_once_no_token_spam(tmp_path):
+    """The reported bug: a standing HARD trip that stages an action (platform-off)
+    must offer the confirm token ONCE, not re-stage on every staleness refresh."""
+    d = _daemon(tmp_path)
+    d.handle([_trip(ActionType.PLATFORM_OFF_TODAY)], _snap(), "briefing")
+    d.handle([_trip(ActionType.PLATFORM_OFF_TODAY)], _snap(), "staleness")
+    d.handle([_trip(ActionType.PLATFORM_OFF_TODAY)], _snap(), "staleness")
+    assert sum("TOK1" in a for a in d._alerts) == 1     # one confirm offer, not three
+
+
+def test_cleared_hard_trip_announced_then_rearmed(tmp_path):
+    """A HARD trip that resolves says 'cleared' once; if it later re-trips, the edge
+    is re-armed and it alerts again (so a NEW episode is never missed)."""
+    d = _daemon(tmp_path)
+    d.handle([_trip(ActionType.ALERT_ONLY)], _snap(), "briefing")    # appears
+    d.handle([], _snap(), "staleness")                              # resolves
+    assert any("cleared" in a.lower() for a in d._alerts)
+    d._alerts.clear()
+    d.handle([_trip(ActionType.ALERT_ONLY)], _snap(), "briefing")    # returns
+    assert sum("[hard]" in a for a in d._alerts) == 1
 
 
 # --- staleness watchdog: quiet refresh in an idle market, scream only on real stall ---
