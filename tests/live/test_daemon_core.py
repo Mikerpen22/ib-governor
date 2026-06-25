@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 from governor.config import LiveConfig, RulesConfig
+import governor.live.daemon as _daemon_mod
 from governor.live.daemon import (
     BrakeDaemon,
     is_expected_restart,
@@ -150,12 +151,65 @@ def test_reconnect_resubscribes_pnl_and_recovers(monkeypatch):
     assert attempts["n"] == 3                           # retried until success
 
 
-def test_reconnect_guard_prevents_concurrent_loops():
+def test_reconnect_guard_prevents_concurrent_loops(monkeypatch):
     d = BrakeDaemon(RulesConfig())
+
+    async def _no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(asyncio, "sleep", _no_sleep)
+
+    connect_calls = []
+
+    async def _sentinel_connect():
+        connect_calls.append(1)
+
+    monkeypatch.setattr(d.conn, "connect_async", _sentinel_connect)
+
     d._reconnecting = True
     # Already reconnecting -> the coroutine returns immediately without touching conn.
     asyncio.run(d._reconnect())
-    assert d._reconnecting is True
+    assert d._reconnecting is True          # guard left it True (it set it, not us)
+    assert connect_calls == []              # connect_async was never reached
+
+
+def test_blind_alert_once_then_restored_edge_trigger(monkeypatch):
+    """End-to-end: across multiple failed connect attempts the daemon emits exactly
+    one BRAKE-BLIND alert; on reconnect it emits exactly one 'restored'/'reconnected'
+    alert and resets _blind_alerted so the edge is re-armed for a future episode."""
+    d = BrakeDaemon(RulesConfig())
+
+    # Force should_alert_blind to always return True so we bypass the time-window
+    # helpers and test the latch behaviour in isolation.
+    monkeypatch.setattr(_daemon_mod, "should_alert_blind", lambda *a, **k: True)
+
+    async def _no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(asyncio, "sleep", _no_sleep)
+
+    alerts = []
+    monkeypatch.setattr(d, "alert", lambda text, **k: alerts.append(text))
+    monkeypatch.setattr(d, "_subscribe_pnl", lambda: None)
+    monkeypatch.setattr(d, "evaluate_and_handle", lambda reason: None)
+
+    attempts = {"n": 0}
+
+    async def fake_connect():
+        attempts["n"] += 1
+        if attempts["n"] <= 3:           # fail three times, then succeed
+            raise ConnectionError("not up yet")
+
+    monkeypatch.setattr(d.conn, "connect_async", fake_connect)
+
+    asyncio.run(d._reconnect())
+
+    blind_alerts = [a for a in alerts if "BRAKE BLIND" in a]
+    restored_alerts = [a for a in alerts if "restored" in a.lower() or "reconnected" in a.lower()]
+
+    assert len(blind_alerts) == 1, f"Expected 1 BRAKE BLIND alert, got {len(blind_alerts)}: {blind_alerts}"
+    assert len(restored_alerts) == 1, f"Expected 1 restored alert, got {len(restored_alerts)}: {restored_alerts}"
+    assert d._blind_alerted is False     # reset after reconnect so next episode can alert
 
 
 def test_weekly_probe_alerts_when_disconnected(monkeypatch):

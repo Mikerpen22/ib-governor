@@ -656,6 +656,8 @@ class BrakeDaemon:
         edge-trigger ONE BRAKE-BLIND alert for an unexpected outage past the grace.
         On success we re-subscribe reqPnL (lost on disconnect) and re-evaluate."""
         if self._reconnecting:
+            # ib_async re-emits disconnectedEvent on a failed connect → re-enters _on_disconnect;
+            # this guard prevents stacked reconnect loops (load-bearing, not just defensive).
             return
         self._reconnecting = True
         start = self._now()
