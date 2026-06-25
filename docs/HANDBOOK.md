@@ -171,6 +171,13 @@ What you get:
 
 To stop it: `launchctl unload ~/Library/LaunchAgents/com.ib-governor.daemon.plist`.
 
+To **restart** it after pulling new code or editing `config/rules.yaml` (the
+daemon only picks up changes on restart): `make restart-daemon`. It pulls `main`
+when the tree is clean, bounces the agent (`launchctl kickstart -k`), and prints
+the **SAFE / ARMED** mode it came back in. It never arms the brake — only
+restarts. Pass `--no-pull` (just restart) or `--logs` (follow the log) via
+`scripts/restart-daemon.sh` directly.
+
 > **Robustness:** the template sets `ThrottleInterval: 30` — if TWS isn't up yet (e.g. right after login) the daemon exits and launchd respawns it calmly every 30s instead of hot-looping. Mid-session disconnects self-heal via the daemon's own reconnect backoff (5→60s).
 
 ### Schedule the daily summary (launchd)

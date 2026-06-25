@@ -13,13 +13,14 @@ PYTHON ?= python3.12
 VENV   := .venv
 BIN    := $(VENV)/bin
 
-.PHONY: help setup test daemon gate docs clean
+.PHONY: help setup test daemon restart-daemon gate docs clean
 
 help:
 	@echo "ib-governor — available targets:"
 	@echo "  make setup    Create $(VENV) (with $(PYTHON)) and install -e \".[dev]\""
 	@echo "  make test     Run the test suite (pytest -q) — green without TWS"
 	@echo "  make daemon   Run the circuit-breaker daemon (ships dry-run/read-only)"
+	@echo "  make restart-daemon  Pull main (if clean) + bounce the launchd daemon"
 	@echo "  make gate     Show example pre-trade gate (read-only analyze) usage"
 	@echo "  make docs     Install docs extras and serve the MkDocs site locally"
 	@echo "  make clean    Remove $(VENV), caches, and build artifacts"
@@ -35,6 +36,13 @@ test:
 
 daemon:
 	$(BIN)/python -m governor.live.daemon
+
+# Bounce the always-on launchd daemon after pulling new code or editing config.
+# Pulls main (when the tree is clean), restarts com.ib-governor.daemon, and
+# prints the SAFE/ARMED mode it came back in. Pass --no-pull / --logs via the
+# script directly. Restart only — never arms the brake.
+restart-daemon:
+	./scripts/restart-daemon.sh
 
 gate:
 	@echo "Pre-trade gate — analyze is READ-ONLY (places nothing); prints GO/CAUTION/BLOCK + a single-use token:"
