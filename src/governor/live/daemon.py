@@ -42,6 +42,26 @@ from .snapshot import contract_symbol, is_sec_type
 ET = ZoneInfo("America/New_York")
 log = logging.getLogger("governor.daemon")
 
+
+def _parse_hhmm(hhmm: str) -> tuple[int, int]:
+    h, m = (int(x) for x in hhmm.split(":"))
+    return h, m
+
+
+def is_expected_restart(now: dt.datetime, restart_et: str, window_min: float) -> bool:
+    """True if `now` is within +/- window_min of the daily Gateway/IBC restart
+    time (ET) on the prior, current, or next day — so a 23:59 restart's window
+    correctly straddles midnight. A disconnect here is routine: stay quiet."""
+    now = now.astimezone(ET) if now.tzinfo else now.replace(tzinfo=ET)
+    h, m = _parse_hhmm(restart_et)
+    window = window_min * 60.0
+    for day_off in (-1, 0, 1):
+        restart = (now + dt.timedelta(days=day_off)).replace(
+            hour=h, minute=m, second=0, microsecond=0)
+        if abs((now - restart).total_seconds()) <= window:
+            return True
+    return False
+
 # IB status codes that are informational, not errors (data farm connect/disconnect).
 _BENIGN_IB_CODES = {2104, 2106, 2107, 2108, 2119, 2158}
 

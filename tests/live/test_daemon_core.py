@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 from governor.config import LiveConfig, RulesConfig
-from governor.live.daemon import BrakeDaemon, next_briefing_dt
+from governor.live.daemon import BrakeDaemon, is_expected_restart, next_briefing_dt
 
 ET = ZoneInfo("America/New_York")
 
@@ -51,3 +51,18 @@ def test_subscribe_pnl_swallows_errors():
 
     d.conn.ib = SimpleNamespace(reqPnL=boom, managedAccounts=lambda: ["U1"])
     d._subscribe_pnl()  # must NOT raise
+
+
+def test_expected_restart_inside_window():
+    now = dt.datetime(2026, 6, 17, 23, 55, tzinfo=ET)   # 4 min before 23:59
+    assert is_expected_restart(now, "23:59", 10.0) is True
+
+
+def test_expected_restart_outside_window():
+    now = dt.datetime(2026, 6, 17, 12, 0, tzinfo=ET)
+    assert is_expected_restart(now, "23:59", 10.0) is False
+
+
+def test_expected_restart_wraps_past_midnight():
+    now = dt.datetime(2026, 6, 18, 0, 5, tzinfo=ET)      # 6 min after a 23:59 restart
+    assert is_expected_restart(now, "23:59", 10.0) is True
