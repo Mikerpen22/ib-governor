@@ -42,6 +42,61 @@ from .snapshot import contract_symbol, is_sec_type
 ET = ZoneInfo("America/New_York")
 log = logging.getLogger("governor.daemon")
 
+
+def _parse_hhmm(hhmm: str) -> tuple[int, int]:
+    h, m = (int(x) for x in hhmm.split(":"))
+    return h, m
+
+
+def is_expected_restart(now: dt.datetime, restart_et: str, window_min: float) -> bool:
+    """True if `now` is within +/- window_min of the daily Gateway/IBC restart
+    time (ET) on the prior, current, or next day — so a 23:59 restart's window
+    correctly straddles midnight. A disconnect here is routine: stay quiet."""
+    now = now.astimezone(ET) if now.tzinfo else now.replace(tzinfo=ET)
+    h, m = _parse_hhmm(restart_et)
+    window = window_min * 60.0
+    for day_off in (-1, 0, 1):
+        restart = (now + dt.timedelta(days=day_off)).replace(
+            hour=h, minute=m, second=0, microsecond=0)
+        if abs((now - restart).total_seconds()) <= window:
+            return True
+    return False
+
+
+def is_weekly_relogin_window(now: dt.datetime, reset_et: str, probe_et: str) -> bool:
+    """True if `now` is Sunday (ET) between the IBKR weekly token reset and the
+    morning probe — being logged out here is expected (market closed), so the
+    reconnect loop stays quiet and the Sunday probe issues the actionable nudge."""
+    now = now.astimezone(ET) if now.tzinfo else now.replace(tzinfo=ET)
+    if now.weekday() != 6:
+        return False
+    rh, rm = _parse_hhmm(reset_et)
+    ph, pm = _parse_hhmm(probe_et)
+    reset = now.replace(hour=rh, minute=rm, second=0, microsecond=0)
+    probe = now.replace(hour=ph, minute=pm, second=0, microsecond=0)
+    return reset <= now < probe
+
+
+def next_weekly_probe_dt(now: dt.datetime, probe_et: str) -> dt.datetime:
+    """Soonest future Sunday at probe_et (ET)."""
+    now = now.astimezone(ET) if now.tzinfo else now.replace(tzinfo=ET)
+    h, m = _parse_hhmm(probe_et)
+    days_ahead = (6 - now.weekday()) % 7
+    candidate = (now + dt.timedelta(days=days_ahead)).replace(
+        hour=h, minute=m, second=0, microsecond=0)
+    if candidate <= now:
+        candidate += dt.timedelta(days=7)
+    return candidate
+
+
+def should_alert_blind(elapsed_seconds: float, expected: bool,
+                       alert_after_seconds: float, restart_window_min: float) -> bool:
+    """Whether a still-down link warrants the (edge-triggered) BRAKE-BLIND alert.
+    During an expected restart/weekly window, tolerate the full window before
+    crying wolf; otherwise alert after the short grace."""
+    threshold = restart_window_min * 60.0 if expected else alert_after_seconds
+    return elapsed_seconds >= threshold
+
 # IB status codes that are informational, not errors (data farm connect/disconnect).
 _BENIGN_IB_CODES = {2104, 2106, 2107, 2108, 2119, 2158}
 
@@ -257,6 +312,8 @@ class BrakeDaemon:
         self._last_built = None
         self._last_executed: dict[str, dt.datetime] = {}  # action.value -> last successful execute (cooldown)
         self._announced_keys: set[str] = set()  # rule_ids of standing trips already announced (edge-triggered alerts; any severity)
+        self._reconnecting = False        # guard: at most one reconnect loop at a time
+        self._blind_alerted = False       # edge-trigger: BRAKE BLIND announced once per blind episode
         self._tg_offset = 0
         # Serialize order placement/cancel so two near-simultaneous taps/types of
         # the same token can't both consume it and double-submit (the staged-file
@@ -589,20 +646,56 @@ class BrakeDaemon:
             log.error("IB error %s: %s", code, errorString)
 
     def _on_disconnect(self) -> None:
-        log.error("BRAKE BLIND: disconnected from TWS — reconnecting")
+        log.error("disconnected from TWS — reconnecting")
         asyncio.ensure_future(self._reconnect())
 
     async def _reconnect(self) -> None:
-        for delay in (5, 10, 20, 40, 60):
-            await asyncio.sleep(delay)
-            try:
-                await self.conn.connect_async()
+        """Reconnect with capped backoff, persistently. The nightly Gateway
+        auto-restart darkens the API for ~2-3 min, so we never 'give up'; instead
+        we stay quiet during an expected restart / the Sunday weekly window, and
+        edge-trigger ONE BRAKE-BLIND alert for an unexpected outage past the grace.
+        On success we re-subscribe reqPnL (lost on disconnect) and re-evaluate."""
+        if self._reconnecting:
+            # ib_async re-emits disconnectedEvent on a failed connect → re-enters _on_disconnect;
+            # this guard prevents stacked reconnect loops (load-bearing, not just defensive).
+            return
+        self._reconnecting = True
+        start = self._now()
+        delays = (5, 10, 20, 40, 60)
+        attempt = 0
+        try:
+            while True:
+                await asyncio.sleep(delays[min(attempt, len(delays) - 1)])
+                attempt += 1
+                try:
+                    await self.conn.connect_async()
+                except Exception as exc:  # noqa: BLE001 — retry on any failure
+                    now = self._now()
+                    elapsed = (now - start).total_seconds()
+                    expected = is_expected_restart(
+                        now, self.config.live.gateway_restart_et,
+                        self.config.live.restart_quiet_window_min) or is_weekly_relogin_window(
+                        now, self.config.live.weekly_relogin_reset_et,
+                        self.config.live.weekly_relogin_probe_et)
+                    if not self._blind_alerted and should_alert_blind(
+                            elapsed, expected,
+                            self.config.live.reconnect_alert_after_seconds,
+                            self.config.live.restart_quiet_window_min):
+                        self.alert(f"\U0001f6d1 {b('BRAKE BLIND')}: disconnected from TWS for "
+                                   f"~{int(elapsed)}s and still retrying — check the Gateway.")
+                        self._blind_alerted = True
+                    log.error("reconnect failed (elapsed %.0fs): %s", elapsed, exc)
+                    continue
+                # connected
+                self._subscribe_pnl()
+                if self._blind_alerted:
+                    self.alert(f"✅ {b('reconnected')} — brake restored.")
+                self._blind_alerted = False
                 log.info("reconnected to TWS")
                 self.evaluate_and_handle("reconnect")
                 return
-            except Exception as exc:  # noqa: BLE001 - want to retry on any failure
-                log.error("reconnect attempt failed (waited %ss): %s", delay, exc)
-        log.critical("BRAKE BLIND: reconnect gave up — manual intervention required")
+        finally:
+            self._reconnecting = False
 
     async def _briefing_loop(self) -> None:
         while True:
@@ -691,6 +784,28 @@ class BrakeDaemon:
             await asyncio.sleep(self.config.live.staleness_seconds)
             self._refresh_if_stale()
 
+    def _check_weekly_relogin(self) -> None:
+        """One weekly-probe tick. After the Sunday 01:00 ET token reset the Gateway
+        needs a 2FA re-login; if the API is still down at probe time, send an
+        ACTIONABLE nudge (distinct from the generic BRAKE-BLIND) so the tap happens
+        before Monday's open. Edge-quiet when healthy."""
+        if self.ib.isConnected():
+            log.info("weekly probe: connection healthy")
+            return
+        self.alert(f"\U0001f510 {b('Weekly re-login required')}: the IBKR Sunday reset "
+                   f"logged the Gateway out. Approve the IBKR-Mobile push (or open the "
+                   f"Gateway) so the brake is live before Monday's open.")
+
+    async def _weekly_probe_loop(self) -> None:
+        while True:
+            now = self._now()
+            nxt = next_weekly_probe_dt(now, self.config.live.weekly_relogin_probe_et)
+            await asyncio.sleep(max(0.0, (nxt - now).total_seconds()))
+            try:
+                self._check_weekly_relogin()
+            except Exception as exc:  # noqa: BLE001 — a probe failure must not drop the loop
+                log.error("weekly probe failed: %s", exc)
+
     def run(self) -> None:
         self.conn.connect()
         self._subscribe_pnl()
@@ -704,6 +819,7 @@ class BrakeDaemon:
         asyncio.ensure_future(self._briefing_loop())
         asyncio.ensure_future(self._telegram_loop())
         asyncio.ensure_future(self._staleness_loop())
+        asyncio.ensure_future(self._weekly_probe_loop())
         self.ib.run()  # loop.run_forever()
 
 

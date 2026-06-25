@@ -99,6 +99,13 @@ class LiveConfig(BaseModel):
     confirm_ttl_seconds: PositiveFloat = 300.0  # a staged action's confirm token expires after this
     action_cooldown_seconds: PositiveFloat = 300.0  # after an action executes, suppress re-staging the SAME action this long (prevents post-execute over-trim)
 
+    # --- unattended operation (Gateway + IBC) ---
+    gateway_restart_et: str = "23:59"                    # IBC AutoRestartTime (HH:MM ET); a disconnect near this is routine
+    restart_quiet_window_min: NonNegativeFloat = 10.0    # +/- minutes around the restart treated as an expected outage
+    reconnect_alert_after_seconds: NonNegativeFloat = 90.0  # UNEXPECTED disconnect -> edge-alert BRAKE BLIND after this
+    weekly_relogin_reset_et: str = "01:00"               # IBKR Sunday token reset (HH:MM ET)
+    weekly_relogin_probe_et: str = "09:00"               # Sunday connectivity probe (HH:MM ET) -> actionable re-login nudge
+
     @field_validator("session_close_et")
     @classmethod
     def _valid_close(cls, v: str) -> str:
@@ -112,6 +119,13 @@ class LiveConfig(BaseModel):
         for t in v:
             if not _HHMM.match(t):
                 raise ValueError(f"briefing time must be HH:MM, got {t!r}")
+        return v
+
+    @field_validator("gateway_restart_et", "weekly_relogin_reset_et", "weekly_relogin_probe_et")
+    @classmethod
+    def _valid_et_time(cls, v: str) -> str:
+        if not _HHMM.match(v):
+            raise ValueError(f"time must be HH:MM, got {v!r}")
         return v
 
 

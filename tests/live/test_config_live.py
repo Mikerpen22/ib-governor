@@ -25,3 +25,22 @@ def test_live_rejects_bad_time():
 def test_live_rejects_bad_briefing_time():
     with pytest.raises(ValueError):
         LiveConfig(briefing_times_et=["10:30", "noon"])
+
+
+def test_live_unattended_defaults():
+    lc = LiveConfig()
+    assert lc.gateway_restart_et == "23:59"
+    assert lc.restart_quiet_window_min == 10.0
+    assert lc.reconnect_alert_after_seconds == 90.0
+    assert lc.weekly_relogin_reset_et == "01:00"
+    assert lc.weekly_relogin_probe_et == "09:00"
+
+
+def test_live_rejects_bad_restart_time():
+    with pytest.raises(ValueError):
+        LiveConfig(gateway_restart_et="24:00")
+
+
+def test_live_rejects_bad_probe_time():
+    with pytest.raises(ValueError):
+        LiveConfig(weekly_relogin_probe_et="9am")

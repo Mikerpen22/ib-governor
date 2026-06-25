@@ -270,6 +270,34 @@ still confirm). When in doubt, end with a `?` and it's treated as a question.
   path off entirely, set `telegram_agent.enabled: false` in `config/rules.yaml`
   (it ships enabled; `claude_bin` and `timeout_seconds` are also tunable there).
 
+### Unattended operation — IB Gateway + scheduling knobs
+
+For always-on, unattended use the daemon connects to **IB Gateway** (managed by IBC), not TWS. The ports are different:
+
+| Mode | Port | Note |
+|------|------|-------|
+| Live | **4001** | IB Gateway live |
+| Paper | **4002** | IB Gateway paper |
+| Live TWS | 7496 | interactive use only |
+| Paper TWS | 7497 | interactive use only |
+
+Set `live.host: 127.0.0.1` (unchanged) and `live.port: 4001` (or `4002` for paper) in your local `config/rules.yaml`. IB Gateway auto-restarts nightly (IBC's `AutoRestartTime`), which would otherwise look like an unexpected outage and fire a false BRAKE-BLIND. The daemon handles this with five scheduling knobs:
+
+| Key | Default | What it does |
+|-----|---------|--------------|
+| `live.gateway_restart_et` | `"23:59"` | IBC's nightly auto-restart time (HH:MM ET). A disconnect within the quiet window around this time is treated as **routine** — no alert fires. Keep this in sync with `AutoRestartTime` in `~/ibc/config.ini`. |
+| `live.restart_quiet_window_min` | `10.0` | ± minutes around `gateway_restart_et` that count as the expected outage window. The daemon stays quiet during this window and reconnects silently when Gateway comes back. |
+| `live.reconnect_alert_after_seconds` | `90.0` | Outside the quiet window, if the daemon loses connection and can't reconnect within this many seconds, it fires **one** BRAKE-BLIND alert (edge-triggered — it won't re-spam on every poll). |
+| `live.weekly_relogin_reset_et` | `"01:00"` | IBKR's Sunday token reset time (HH:MM ET). Marks the window after which a fresh 2FA re-login is required to re-authorize the session. |
+| `live.weekly_relogin_probe_et` | `"09:00"` | Sunday morning probe time (HH:MM ET). If the daemon detects the weekly re-login hasn't happened yet, it sends **one actionable nudge** — "weekly re-login required" — so you can open the app, approve the 2FA push, and keep the week running unattended. |
+
+**What this means day-to-day:**
+- The 23:59 nightly Gateway restart passes **silently** — no false BRAKE-BLIND, no noise.
+- An *unexpected* outage (Gateway crashed, network down, TWS accidentally used instead) fires exactly one alert after 90 seconds so you know to look.
+- Every Sunday morning you get one nudge if the weekly 2FA re-login is pending. Approve it and the rest of the week runs hands-off.
+
+> **Full deployment walkthrough** (installing IB Gateway + IBC, creating a dedicated IBKR username, the launchd Gateway agent, and macOS hardening) is in the implementation plan's deployment runbook: `docs/superpowers/plans/2026-06-24-always-on-ibkr-gateway.md`, Part 2.
+
 ---
 
 ## 6. Reading a verdict
