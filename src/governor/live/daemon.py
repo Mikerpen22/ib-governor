@@ -88,6 +88,15 @@ def next_weekly_probe_dt(now: dt.datetime, probe_et: str) -> dt.datetime:
         candidate += dt.timedelta(days=7)
     return candidate
 
+
+def should_alert_blind(elapsed_seconds: float, expected: bool,
+                       alert_after_seconds: float, restart_window_min: float) -> bool:
+    """Whether a still-down link warrants the (edge-triggered) BRAKE-BLIND alert.
+    During an expected restart/weekly window, tolerate the full window before
+    crying wolf; otherwise alert after the short grace."""
+    threshold = restart_window_min * 60.0 if expected else alert_after_seconds
+    return elapsed_seconds >= threshold
+
 # IB status codes that are informational, not errors (data farm connect/disconnect).
 _BENIGN_IB_CODES = {2104, 2106, 2107, 2108, 2119, 2158}
 

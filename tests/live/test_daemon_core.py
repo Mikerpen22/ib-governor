@@ -10,6 +10,7 @@ from governor.live.daemon import (
     is_weekly_relogin_window,
     next_briefing_dt,
     next_weekly_probe_dt,
+    should_alert_blind,
 )
 
 ET = ZoneInfo("America/New_York")
@@ -102,3 +103,19 @@ def test_weekly_relogin_window_true_on_sunday_morning():
 def test_weekly_relogin_window_false_off_sunday():
     now = dt.datetime(2026, 6, 20, 3, 0, tzinfo=ET)     # Saturday
     assert is_weekly_relogin_window(now, "01:00", "09:00") is False
+
+
+def test_blind_alert_unexpected_after_grace():
+    assert should_alert_blind(120.0, expected=False,
+                              alert_after_seconds=90.0, restart_window_min=10.0) is True
+    assert should_alert_blind(30.0, expected=False,
+                              alert_after_seconds=90.0, restart_window_min=10.0) is False
+
+
+def test_blind_alert_expected_tolerates_full_window():
+    # Inside an expected restart: a normal 3-min outage must NOT alert (180s < 600s),
+    # but a 12-min stall during the window does.
+    assert should_alert_blind(180.0, expected=True,
+                              alert_after_seconds=90.0, restart_window_min=10.0) is False
+    assert should_alert_blind(720.0, expected=True,
+                              alert_after_seconds=90.0, restart_window_min=10.0) is True
