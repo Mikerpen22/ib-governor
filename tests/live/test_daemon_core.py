@@ -4,7 +4,13 @@ from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 from governor.config import LiveConfig, RulesConfig
-from governor.live.daemon import BrakeDaemon, is_expected_restart, next_briefing_dt
+from governor.live.daemon import (
+    BrakeDaemon,
+    is_expected_restart,
+    is_weekly_relogin_window,
+    next_briefing_dt,
+    next_weekly_probe_dt,
+)
 
 ET = ZoneInfo("America/New_York")
 
@@ -66,3 +72,33 @@ def test_expected_restart_outside_window():
 def test_expected_restart_wraps_past_midnight():
     now = dt.datetime(2026, 6, 18, 0, 5, tzinfo=ET)      # 6 min after a 23:59 restart
     assert is_expected_restart(now, "23:59", 10.0) is True
+
+
+def test_next_weekly_probe_rolls_to_sunday():
+    now = dt.datetime(2026, 6, 17, 12, 0, tzinfo=ET)    # Wed 2026-06-17
+    nxt = next_weekly_probe_dt(now, "09:00")
+    assert nxt.weekday() == 6                            # Sunday
+    assert (nxt.hour, nxt.minute) == (9, 0)
+    assert nxt.date() == dt.date(2026, 6, 21)           # the coming Sunday
+
+
+def test_next_weekly_probe_same_sunday_before_time():
+    now = dt.datetime(2026, 6, 21, 7, 0, tzinfo=ET)     # Sunday, before 09:00
+    nxt = next_weekly_probe_dt(now, "09:00")
+    assert nxt.date() == dt.date(2026, 6, 21)
+
+
+def test_next_weekly_probe_after_time_goes_next_week():
+    now = dt.datetime(2026, 6, 21, 10, 0, tzinfo=ET)    # Sunday, after 09:00
+    nxt = next_weekly_probe_dt(now, "09:00")
+    assert nxt.date() == dt.date(2026, 6, 28)
+
+
+def test_weekly_relogin_window_true_on_sunday_morning():
+    now = dt.datetime(2026, 6, 21, 3, 0, tzinfo=ET)     # Sunday 03:00, between 01:00 and 09:00
+    assert is_weekly_relogin_window(now, "01:00", "09:00") is True
+
+
+def test_weekly_relogin_window_false_off_sunday():
+    now = dt.datetime(2026, 6, 20, 3, 0, tzinfo=ET)     # Saturday
+    assert is_weekly_relogin_window(now, "01:00", "09:00") is False

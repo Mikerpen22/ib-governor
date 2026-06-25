@@ -62,6 +62,32 @@ def is_expected_restart(now: dt.datetime, restart_et: str, window_min: float) ->
             return True
     return False
 
+
+def is_weekly_relogin_window(now: dt.datetime, reset_et: str, probe_et: str) -> bool:
+    """True if `now` is Sunday (ET) between the IBKR weekly token reset and the
+    morning probe — being logged out here is expected (market closed), so the
+    reconnect loop stays quiet and the Sunday probe issues the actionable nudge."""
+    now = now.astimezone(ET) if now.tzinfo else now.replace(tzinfo=ET)
+    if now.weekday() != 6:
+        return False
+    rh, rm = _parse_hhmm(reset_et)
+    ph, pm = _parse_hhmm(probe_et)
+    reset = now.replace(hour=rh, minute=rm, second=0, microsecond=0)
+    probe = now.replace(hour=ph, minute=pm, second=0, microsecond=0)
+    return reset <= now < probe
+
+
+def next_weekly_probe_dt(now: dt.datetime, probe_et: str) -> dt.datetime:
+    """Soonest future Sunday at probe_et (ET)."""
+    now = now.astimezone(ET) if now.tzinfo else now.replace(tzinfo=ET)
+    h, m = _parse_hhmm(probe_et)
+    days_ahead = (6 - now.weekday()) % 7
+    candidate = (now + dt.timedelta(days=days_ahead)).replace(
+        hour=h, minute=m, second=0, microsecond=0)
+    if candidate <= now:
+        candidate += dt.timedelta(days=7)
+    return candidate
+
 # IB status codes that are informational, not errors (data farm connect/disconnect).
 _BENIGN_IB_CODES = {2104, 2106, 2107, 2108, 2119, 2158}
 
