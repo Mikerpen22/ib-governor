@@ -1,4 +1,5 @@
 # tests/live/test_daemon_core.py
+import asyncio
 import datetime as dt
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -119,3 +120,39 @@ def test_blind_alert_expected_tolerates_full_window():
                               alert_after_seconds=90.0, restart_window_min=10.0) is False
     assert should_alert_blind(720.0, expected=True,
                               alert_after_seconds=90.0, restart_window_min=10.0) is True
+
+
+def test_reconnect_resubscribes_pnl_and_recovers(monkeypatch):
+    d = BrakeDaemon(RulesConfig())
+    events = []
+    monkeypatch.setattr(d, "alert", lambda text, **k: events.append(("alert", text)))
+    monkeypatch.setattr(d, "_subscribe_pnl", lambda: events.append(("pnl", None)))
+    monkeypatch.setattr(d, "evaluate_and_handle", lambda reason: events.append(("eval", reason)))
+
+    attempts = {"n": 0}
+
+    async def fake_connect():
+        attempts["n"] += 1
+        if attempts["n"] < 3:            # fail twice, then succeed
+            raise ConnectionError("gateway not up yet")
+
+    monkeypatch.setattr(d.conn, "connect_async", fake_connect)
+
+    async def _no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(asyncio, "sleep", _no_sleep)
+
+    asyncio.run(d._reconnect())
+
+    assert ("pnl", None) in events                      # re-subscribed after reconnect
+    assert ("eval", "reconnect") in events              # re-evaluated on return
+    assert attempts["n"] == 3                           # retried until success
+
+
+def test_reconnect_guard_prevents_concurrent_loops():
+    d = BrakeDaemon(RulesConfig())
+    d._reconnecting = True
+    # Already reconnecting -> the coroutine returns immediately without touching conn.
+    asyncio.run(d._reconnect())
+    assert d._reconnecting is True

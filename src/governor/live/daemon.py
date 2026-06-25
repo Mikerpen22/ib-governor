@@ -312,6 +312,8 @@ class BrakeDaemon:
         self._last_built = None
         self._last_executed: dict[str, dt.datetime] = {}  # action.value -> last successful execute (cooldown)
         self._announced_keys: set[str] = set()  # rule_ids of standing trips already announced (edge-triggered alerts; any severity)
+        self._reconnecting = False        # guard: at most one reconnect loop at a time
+        self._blind_alerted = False       # edge-trigger: BRAKE BLIND announced once per blind episode
         self._tg_offset = 0
         # Serialize order placement/cancel so two near-simultaneous taps/types of
         # the same token can't both consume it and double-submit (the staged-file
@@ -644,20 +646,54 @@ class BrakeDaemon:
             log.error("IB error %s: %s", code, errorString)
 
     def _on_disconnect(self) -> None:
-        log.error("BRAKE BLIND: disconnected from TWS — reconnecting")
+        log.error("disconnected from TWS — reconnecting")
         asyncio.ensure_future(self._reconnect())
 
     async def _reconnect(self) -> None:
-        for delay in (5, 10, 20, 40, 60):
-            await asyncio.sleep(delay)
-            try:
-                await self.conn.connect_async()
+        """Reconnect with capped backoff, persistently. The nightly Gateway
+        auto-restart darkens the API for ~2-3 min, so we never 'give up'; instead
+        we stay quiet during an expected restart / the Sunday weekly window, and
+        edge-trigger ONE BRAKE-BLIND alert for an unexpected outage past the grace.
+        On success we re-subscribe reqPnL (lost on disconnect) and re-evaluate."""
+        if self._reconnecting:
+            return
+        self._reconnecting = True
+        start = self._now()
+        delays = (5, 10, 20, 40, 60)
+        attempt = 0
+        try:
+            while True:
+                await asyncio.sleep(delays[min(attempt, len(delays) - 1)])
+                attempt += 1
+                try:
+                    await self.conn.connect_async()
+                except Exception as exc:  # noqa: BLE001 — retry on any failure
+                    now = self._now()
+                    elapsed = (now - start).total_seconds()
+                    expected = is_expected_restart(
+                        now, self.config.live.gateway_restart_et,
+                        self.config.live.restart_quiet_window_min) or is_weekly_relogin_window(
+                        now, self.config.live.weekly_relogin_reset_et,
+                        self.config.live.weekly_relogin_probe_et)
+                    if not self._blind_alerted and should_alert_blind(
+                            elapsed, expected,
+                            self.config.live.reconnect_alert_after_seconds,
+                            self.config.live.restart_quiet_window_min):
+                        self.alert(f"\U0001f6d1 {b('BRAKE BLIND')}: disconnected from TWS for "
+                                   f"~{int(elapsed)}s and still retrying — check the Gateway.")
+                        self._blind_alerted = True
+                    log.error("reconnect failed (elapsed %.0fs): %s", elapsed, exc)
+                    continue
+                # connected
+                self._subscribe_pnl()
+                if self._blind_alerted:
+                    self.alert(f"✅ {b('reconnected')} — brake restored.")
+                self._blind_alerted = False
                 log.info("reconnected to TWS")
                 self.evaluate_and_handle("reconnect")
                 return
-            except Exception as exc:  # noqa: BLE001 - want to retry on any failure
-                log.error("reconnect attempt failed (waited %ss): %s", delay, exc)
-        log.critical("BRAKE BLIND: reconnect gave up — manual intervention required")
+        finally:
+            self._reconnecting = False
 
     async def _briefing_loop(self) -> None:
         while True:
