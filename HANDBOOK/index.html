@@ -1,0 +1,1639 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A behavioral circuit-breaker + pre-trade gate for Interactive Brokers (IBKR) trading discipline">
+      
+      
+      
+      
+        <link rel="prev" href="..">
+      
+      
+        <link rel="next" href="../RULES/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Operator's Handbook - ib-governor</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="red" data-md-color-accent="red">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#ib-governor-operators-handbook" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="ib-governor" class="md-header__button md-logo" aria-label="ib-governor" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m20.84 22.73-1.67-1.67C17.7 22.85 15.5 24 13 24c-3.26 0-6.19-2-7.4-5l-3.03-7.63a1 1 0 0 1 1.24-1.32l.79.26c.56.19 1.02.61 1.24 1.16L7.25 15H8V9.89L1.11 3l1.28-1.27 19.72 19.73zM14 1.25a1.25 1.25 0 0 0-2.5 0V8.3l2.5 2.5zM21 16V5.75a1.25 1.25 0 0 0-2.5 0V12h-1V2.75a1.25 1.25 0 0 0-2.5 0v9.05l5.83 5.83c.11-.52.17-1.07.17-1.63M10.5 3.25a1.25 1.25 0 0 0-2.5 0V4.8l2.5 2.5z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            ib-governor
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Operator's Handbook
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="red" data-md-color-accent="red"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="red" data-md-color-accent="red"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/Mikerpen22/ib-governor" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Mikerpen22/ib-governor
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="ib-governor" class="md-nav__button md-logo" aria-label="ib-governor" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m20.84 22.73-1.67-1.67C17.7 22.85 15.5 24 13 24c-3.26 0-6.19-2-7.4-5l-3.03-7.63a1 1 0 0 1 1.24-1.32l.79.26c.56.19 1.02.61 1.24 1.16L7.25 15H8V9.89L1.11 3l1.28-1.27 19.72 19.73zM14 1.25a1.25 1.25 0 0 0-2.5 0V8.3l2.5 2.5zM21 16V5.75a1.25 1.25 0 0 0-2.5 0V12h-1V2.75a1.25 1.25 0 0 0-2.5 0v9.05l5.83 5.83c.11-.52.17-1.07.17-1.63M10.5 3.25a1.25 1.25 0 0 0-2.5 0V4.8l2.5 2.5z"/></svg>
+
+    </a>
+    ib-governor
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Mikerpen22/ib-governor" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Mikerpen22/ib-governor
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operator's Handbook
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operator's Handbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#contents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Contents
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-what-it-is-and-which-half-to-reach-for" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. What it is - and which half to reach for
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-what-it-supports-today" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. What it supports today
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-one-time-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. One-time setup
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-daily-use-the-pre-trade-gate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Daily use - the pre-trade gate
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-daily-use-the-circuit-breaker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Daily use - the circuit-breaker
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Daily use - the circuit-breaker">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#keep-it-running-launchd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Keep it running (launchd)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schedule-the-daily-summary-launchd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schedule the daily summary (launchd)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#order-from-telegram-natural-language" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Order from Telegram (natural language)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ask-the-bot-anything-read-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ask the bot anything (read-only)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-reading-a-verdict" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Reading a verdict
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6b-the-setup-read-setup-panel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6b. The setup read (📈 SETUP panel)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-the-rules-what-trips-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. The rules (what trips it)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-going-live-arming" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Going live (arming)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Troubleshooting
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-command-cheat-sheet" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Command cheat-sheet
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../RULES/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rule Catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ORDER_TYPES/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Order Types
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FORCLAUDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture & Lessons
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../SECURITY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Domain model & config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/rules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rules & engine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/gate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pre-trade gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/live/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Live daemon & snapshot
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/actions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Actions & state
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#contents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Contents
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-what-it-is-and-which-half-to-reach-for" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. What it is - and which half to reach for
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-what-it-supports-today" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. What it supports today
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-one-time-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. One-time setup
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-daily-use-the-pre-trade-gate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Daily use - the pre-trade gate
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-daily-use-the-circuit-breaker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Daily use - the circuit-breaker
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Daily use - the circuit-breaker">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#keep-it-running-launchd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Keep it running (launchd)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schedule-the-daily-summary-launchd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schedule the daily summary (launchd)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#order-from-telegram-natural-language" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Order from Telegram (natural language)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ask-the-bot-anything-read-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ask the bot anything (read-only)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-reading-a-verdict" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Reading a verdict
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6b-the-setup-read-setup-panel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6b. The setup read (📈 SETUP panel)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-the-rules-what-trips-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. The rules (what trips it)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-going-live-arming" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Going live (arming)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Troubleshooting
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-command-cheat-sheet" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Command cheat-sheet
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="ib-governor-operators-handbook">ib-governor — Operator's Handbook<a class="headerlink" href="#ib-governor-operators-handbook" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>How to <em>drive</em> ib-governor day to day. (For the quick reference see <a href="../">Home</a>; for how/why it's built, see <a href="../FORCLAUDE/">FORCLAUDE</a>.)</p>
+</blockquote>
+<h2 id="contents">Contents<a class="headerlink" href="#contents" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="#1-what-it-is-and-which-half-to-reach-for">1. What it is - and which half to reach for</a></li>
+<li><a href="#2-what-it-supports-today">2. What it supports today</a></li>
+<li><a href="#3-one-time-setup">3. One-time setup</a></li>
+<li><a href="#4-daily-use-the-pre-trade-gate">4. Daily use - the pre-trade gate</a></li>
+<li><a href="#5-daily-use-the-circuit-breaker">5. Daily use - the circuit-breaker</a></li>
+<li><a href="#6-reading-a-verdict">6. Reading a verdict</a></li>
+<li><a href="#6b-the-setup-read--setup-panel">6b. The setup read (📈 SETUP panel)</a></li>
+<li><a href="#7-the-rules-what-trips-it">7. The rules (what trips it)</a></li>
+<li><a href="#8-going-live-arming">8. Going live (arming)</a></li>
+<li><a href="#9-troubleshooting">9. Troubleshooting</a></li>
+<li><a href="#10-command-cheat-sheet">10. Command cheat-sheet</a></li>
+</ul>
+<hr />
+<h2 id="1-what-it-is-and-which-half-to-reach-for">1. What it is - and which half to reach for<a class="headerlink" href="#1-what-it-is-and-which-half-to-reach-for" title="Permanent link">&para;</a></h2>
+<p>ib-governor is <strong>two machines</strong> that catch the two different ways trading discipline breaks. You don't pick between them by preference — you use the one that matches <em>how the trade is happening</em>.</p>
+<pre class="mermaid"><code>flowchart TD
+    Q{"How is the trade happening?"}
+    Q --&gt;|"deliberate — you're about to place it"| GATE["Pre-Trade Gate&lt;br/&gt;you invoke /pre-trade"]
+    Q --&gt;|"impulsive — fired in the TWS GUI"| BRK["Circuit-Breaker daemon&lt;br/&gt;always-on, automatic"]
+    GATE --&gt; V["GO / CAUTION / BLOCK&lt;br/&gt;BEFORE it submits"]
+    BRK --&gt; AL["alert + staged action&lt;br/&gt;AFTER the fill"]
+    V --&gt; CF(["your explicit confirm"])
+    AL --&gt; CF
+    CF --&gt; ACT["order placed / action runs"]</code></pre>
+<ul>
+<li><strong>Pre-trade gate</strong> — <em>proactive.</em> When you mean to place a trade, run it through the gate first. It analyzes the trade and won't submit until you confirm. <strong>This is your everyday tool.</strong></li>
+<li><strong>Circuit-breaker</strong> — <em>reactive.</em> A background daemon watching your account. It can't stop a GUI click, but it catches the <em>pattern</em> (house-money churn, overtrading, oversized overnight…) and brakes the <em>next</em> batch.</li>
+</ul>
+<p><strong>The iron rule for both: nothing ever touches your account without your explicit tap.</strong></p>
+<hr />
+<h2 id="2-what-it-supports-today">2. What it supports today<a class="headerlink" href="#2-what-it-supports-today" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Area</th>
+<th>Supported</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Pre-trade gate</strong></td>
+<td>Equities + Futures</td>
+<td>stocks and futures roots (MNQ, ES, NQ, MES, CL…)</td>
+</tr>
+<tr>
+<td><strong>Order types</strong></td>
+<td>market · limit · stop · stop-limit</td>
+<td>structured <code>--type</code> + <code>--limit</code>/<code>--stop</code></td>
+</tr>
+<tr>
+<td><strong>Breaker — futures</strong></td>
+<td>house-money lockout, daily-loss stop, overtrading, overnight notional, live notional, same-contract churn</td>
+<td></td>
+</tr>
+<tr>
+<td><strong>Breaker — equities</strong></td>
+<td>single-name + sector concentration, re-trade churn, add-into-drawdown</td>
+<td></td>
+</tr>
+<tr>
+<td><strong>Breaker — portfolio</strong></td>
+<td>margin cushion, gross leverage, drawdown moratorium</td>
+<td>cross-asset</td>
+</tr>
+<tr>
+<td><strong>Alerts / confirms</strong></td>
+<td>Telegram (two-way) + macOS</td>
+<td>reply <code>CONFIRM &lt;token&gt;</code> to act</td>
+</tr>
+<tr>
+<td><strong>Notes grounding</strong> <em>(optional)</em></td>
+<td>reads a research-notes folder (<code>$VAULT_DIR</code>) at the gate</td>
+<td>per-name theses, lessons, the rule card — skip it and the gate still runs on the numbers</td>
+</tr>
+</tbody>
+</table>
+<p><strong>What it deliberately does <em>not</em> do:</strong>
+- ❌ Auto-execute anything — every action waits for your confirm.
+- ❌ Pre-screen impulsive GUI clicks (IBKR exposes no pre-flight hook — that's what the breaker backstops).
+- ❌ Options (descoped — futures/equities/portfolio only).
+- ❌ Tell you <em>what</em> to buy. It's a brake, not a stock-picker.</p>
+<hr />
+<h2 id="3-one-time-setup">3. One-time setup<a class="headerlink" href="#3-one-time-setup" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>python<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>.venv<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>.venv/bin/pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;.[dev]&quot;</span><span class="w">   </span><span class="c1"># deps</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>cp<span class="w"> </span>.env.example<span class="w"> </span>.env<span class="w">                                         </span><span class="c1"># add Telegram token + chat id (see its comments)</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1"># edit config/rules.yaml if you want to tune thresholds (optional — ships with sensible defaults)</span>
+</code></pre></div>
+<p>Point <code>$GOVERNOR_HOME</code> at your checkout (default <code>~/ib-governor</code>), then install the skills so <code>/pre-trade</code> is invocable (run once, then restart Claude Code):
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">GOVERNOR_HOME</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$HOME</span><span class="s2">/ib-governor&quot;</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="k">for</span><span class="w"> </span>s<span class="w"> </span><span class="k">in</span><span class="w"> </span>pre-trade<span class="w"> </span>pre-trade-equities<span class="w"> </span>pre-trade-futures<span class="p">;</span><span class="w"> </span><span class="k">do</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span>ln<span class="w"> </span>-s<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$GOVERNOR_HOME</span><span class="s2">/skills/</span><span class="nv">$s</span><span class="s2">&quot;</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$HOME</span><span class="s2">/.claude/skills/</span><span class="nv">$s</span><span class="s2">&quot;</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="k">done</span>
+</code></pre></div></p>
+<p><strong>You start SAFE.</strong> Out of the box <code>dry_run: true</code> and <code>readonly: true</code> — ib-governor analyzes and <em>stages</em> but never sends an order. See <a href="#8-going-live-arming">§8</a> to arm it.</p>
+<hr />
+<h2 id="4-daily-use-the-pre-trade-gate">4. Daily use - the pre-trade gate<a class="headerlink" href="#4-daily-use-the-pre-trade-gate" title="Permanent link">&para;</a></h2>
+<p><strong>When:</strong> any time you're about to deliberately place a trade. <strong>How:</strong> just tell the <code>/pre-trade</code> skill in plain language — it routes to the equities or futures analyst by symbol.</p>
+<pre class="mermaid"><code>flowchart TD
+    I["You: /pre-trade buy 50 ORCL limit 145"] --&gt; AN["gate analyze (READ-ONLY — places nothing)"]
+    AN --&gt; F["FACTS: whatIf margin · sizing vs 1.5% NAV ·&lt;br/&gt;concentration before-&amp;gt;after · post-trade rule trips · lockout"]
+    AN --&gt; VAULT["NOTES (optional): prior theses / lessons on ORCL"]
+    F --&gt; VER{"Verdict"}
+    VAULT --&gt; VER
+    VER --&gt;|"GO / CAUTION"| CONF["you confirm"]
+    VER --&gt;|"BLOCK"| REF["refused unless you pass --override"]
+    CONF --&gt; SUB["gate submit --token&lt;br/&gt;(the ONLY path to the exchange)"]</code></pre>
+<p><strong>Worked example</strong> — what you'd see:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>You: /pre-trade buy 50 ORCL limit 145
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>  ORCL   BUY 50 @ limit 145.00   (STK)
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>  whatIf:        initial margin +$3,625 · buying power OK
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>  sizing:        $7,250 = 2.0% of NAV     ⚠ over the 1.5% band
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>  concentration: ORCL 4% -&gt; 6% of NAV     (15% cap — ok)
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>  rules:         none tripped on the post-trade book
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>  notes:         2 notes — &quot;ORCL thesis (Q2)&quot;, &quot;don&#39;t chase &gt; 145&quot;
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>  VERDICT: CAUTION  — size is over the 1.5% band, and your notes say don&#39;t chase &gt; 145.
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>  Want to size down, or confirm anyway?
+</code></pre></div>
+<p>You then either adjust (e.g. "make it 30 shares") or confirm. On confirm, the skill runs <code>submit --token</code> and reports whether it placed live or held it in DRY-RUN.</p>
+<p><strong>Order types:</strong>
+| You want | Say | Becomes |
+|----------|-----|---------|
+| Market | <code>buy 50 ORCL</code> | <code>--type market</code> |
+| Limit | <code>buy 50 ORCL limit 145</code> | <code>--type limit --limit 145</code> |
+| Stop | <code>sell 50 ORCL stop 138</code> | <code>--type stop --stop 138</code> |
+| Stop-limit | <code>sell 50 ORCL stop 138 limit 137</code> | <code>--type stop-limit --stop 138 --limit 137</code> |</p>
+<p>Futures are the same with a root symbol: <code>/pre-trade short 2 MNQ</code> ("short" = sell).</p>
+<blockquote>
+<p>Under the hood the skill calls <code>python -m governor.gate analyze … --json</code>; you can run that directly too (see the <a href="#10-command-cheat-sheet">cheat-sheet</a>).</p>
+</blockquote>
+<hr />
+<h2 id="5-daily-use-the-circuit-breaker">5. Daily use - the circuit-breaker<a class="headerlink" href="#5-daily-use-the-circuit-breaker" title="Permanent link">&para;</a></h2>
+<p><strong>When:</strong> runs in the background during market hours (keep it alive with <code>launchd</code>). It re-checks your account the instant a fill lands, and sends 3 proactive briefings a day.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nv">PYTHONPATH</span><span class="o">=</span>src<span class="w"> </span>.venv/bin/python<span class="w"> </span>-m<span class="w"> </span>governor.live.daemon
+</code></pre></div>
+<pre class="mermaid"><code>flowchart TD
+    FILL["a fill lands (or a scheduled briefing)"] --&gt; SNAP["rebuild the account snapshot"]
+    SNAP --&gt; EVAL["evaluate every rule"]
+    EVAL --&gt;|"a line is crossed"| ALERT["loud alert + staged action&lt;br/&gt;(lockout / platform-off / trim)"]
+    EVAL --&gt;|"all clear"| OK["log OK — do nothing"]
+    ALERT --&gt; REPLY["you reply:  CONFIRM &amp;lt;token&amp;gt;"]
+    REPLY --&gt; EXEC["action executes (guarded; dry-run honored)"]</code></pre>
+<p><strong>Responding to an alert:</strong> you'll get a Telegram + macOS message like <em>"🛑 futures.house_money_lockout [hard] — realized +$3,400 today…"</em> followed by a staged action with a token. Reply <code>CONFIRM 4F2A9C1B</code> within ~5 minutes to run it. Ignore it and nothing happens. Tokens are single-use and expire.</p>
+<p><strong>The 3 briefings</strong> (default 10:30 / 12:30 / 15:55 ET) push a state summary even when nothing's wrong — so you always know where you stand.</p>
+<h3 id="keep-it-running-launchd">Keep it running (launchd)<a class="headerlink" href="#keep-it-running-launchd" title="Permanent link">&para;</a></h3>
+<p>Rather than manually starting the daemon each session, register it as a launchd agent so macOS keeps it alive automatically. The agent ships as a <strong>template</strong> (<code>launchd/com.ib-governor.daemon.plist.template</code>) because launchd needs absolute paths and won't expand <code>$VARS</code> or <code>~</code> — so you <code>sed</code>-replace the <code>__GOVERNOR_HOME__</code> placeholders with your absolute checkout path on the way in:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>mkdir<span class="w"> </span>-p<span class="w"> </span>logs
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>sed<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;s#__GOVERNOR_HOME__#</span><span class="nv">$GOVERNOR_HOME</span><span class="s2">#g&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span>-e<span class="w"> </span><span class="s2">&quot;s#__HOME__#</span><span class="nv">$HOME</span><span class="s2">#g&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span>launchd/com.ib-governor.daemon.plist.template<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">  </span>&gt;<span class="w"> </span>~/Library/LaunchAgents/com.ib-governor.daemon.plist
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>launchctl<span class="w"> </span>load<span class="w"> </span>~/Library/LaunchAgents/com.ib-governor.daemon.plist<span class="w">   </span><span class="c1"># unload to stop</span>
+</code></pre></div>
+<p>What you get:
+- <strong>Auto-start</strong> at login and after crashes (<code>KeepAlive: SuccessfulExit = false</code> restarts it on any non-zero exit).
+- <strong>Telegram works</strong> because the daemon calls <code>load_env_file()</code> on startup, which reads your <code>.env</code> before <code>telegram_from_env()</code> runs — launchd doesn't source your shell profile, so without this Telegram creds would be empty and alerts would go dark.
+- <strong>Natural-language ordering works</strong> because the template sets <code>PATH</code> (venv bin + <code>/opt/homebrew/bin</code>) and <code>HOME</code> — launchd's default <code>PATH</code> finds neither the <code>claude</code> CLI the NL agent shells out to nor the venv <code>python</code> it runs <code>gate analyze</code> with, and <code>HOME</code> is where <code>claude</code> reads its login. Without these the bot replies "natural-language ordering is unavailable."
+- <strong>Logs</strong> land in <code>logs/governor.out.log</code> and <code>logs/governor.err.log</code> (the <code>logs/</code> directory is git-ignored).</p>
+<p>To stop it: <code>launchctl unload ~/Library/LaunchAgents/com.ib-governor.daemon.plist</code>.</p>
+<blockquote>
+<p><strong>Robustness:</strong> the template sets <code>ThrottleInterval: 30</code> — if TWS isn't up yet (e.g. right after login) the daemon exits and launchd respawns it calmly every 30s instead of hot-looping. Mid-session disconnects self-heal via the daemon's own reconnect backoff (5→60s).</p>
+</blockquote>
+<h3 id="schedule-the-daily-summary-launchd">Schedule the daily summary (launchd)<a class="headerlink" href="#schedule-the-daily-summary-launchd" title="Permanent link">&para;</a></h3>
+<p>Run the <strong><code>daily-summary</code></strong> skill unattended every weekday, so a "Market Close" note + Telegram recap land without you lifting a finger. It ships as a template too (<code>launchd/com.ib-governor.daily-summary.plist.template</code>). It runs <code>claude -p /daily-summary</code> headless, so it needs the <code>claude</code> CLI on PATH, the skill installed (symlinked into <code>~/.claude/skills</code>), and an explicit env (launchd ignores your shell profile):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nv">CLAUDE_BIN</span><span class="o">=</span><span class="s2">&quot;</span><span class="k">$(</span><span class="nb">command</span><span class="w"> </span>-v<span class="w"> </span>claude<span class="k">)</span><span class="s2">&quot;</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>sed<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;s#__GOVERNOR_HOME__#</span><span class="nv">$GOVERNOR_HOME</span><span class="s2">#g&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span>-e<span class="w"> </span><span class="s2">&quot;s#__VAULT_DIR__#</span><span class="nv">$VAULT_DIR</span><span class="s2">#g&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span>-e<span class="w"> </span><span class="s2">&quot;s#__HOME__#</span><span class="nv">$HOME</span><span class="s2">#g&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">    </span>-e<span class="w"> </span><span class="s2">&quot;s#__CLAUDE_BIN__#</span><span class="nv">$CLAUDE_BIN</span><span class="s2">#g&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">  </span>launchd/com.ib-governor.daily-summary.plist.template<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">  </span>&gt;<span class="w"> </span>~/Library/LaunchAgents/com.ib-governor.daily-summary.plist
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>launchctl<span class="w"> </span>load<span class="w">  </span>~/Library/LaunchAgents/com.ib-governor.daily-summary.plist
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>launchctl<span class="w"> </span>start<span class="w"> </span>com.ib-governor.daily-summary<span class="w">   </span><span class="c1"># optional: fire once now to test</span>
+</code></pre></div>
+<p>What you get / need to know:
+- <strong>Fires weekdays</strong> at the <code>StartCalendarInterval</code> time (ships 14:30 local — set it to ~90 min after <em>your</em> market close so fills + final marks settle).
+- <strong>Read-only.</strong> It pulls data, writes a vault note (<code>$VAULT_DIR/invest/daily-recaps/&lt;date&gt; Market Close.md</code>), and sends Telegram — it never places an order.
+- <strong>Collision-free.</strong> The collector connects on its own <code>daily_client_id</code> (6), distinct from the daemon (4) and the pre-trade gate (5), so it reads while the daemon holds its connection.
+- <strong>TWS must be up</strong> at that time; if it's down the run says so and writes nothing (fails loud — never fabricates).
+- <strong>Logs:</strong> <code>logs/daily-summary.{out,err}.log</code>. To stop: <code>launchctl unload ~/Library/LaunchAgents/com.ib-governor.daily-summary.plist</code>.</p>
+<h3 id="order-from-telegram-natural-language">Order from Telegram (natural language)<a class="headerlink" href="#order-from-telegram-natural-language" title="Permanent link">&para;</a></h3>
+<p>While the daemon is running you can <strong>start an order from the chat</strong> — in plain
+language. The daemon hands any non-confirm message to a headless <code>claude -p</code>
+agent that loads your <code>/pre-trade-*</code> skill, runs the <strong>read-only</strong> gate analysis,
+and replies with the decision + a confirm token. Nothing is placed until you tap
+<code>CONFIRM</code>.</p>
+<pre class="mermaid"><code>flowchart TD
+    MSG["you text the bot:  'buy me 100 oracle here?'"] --&gt; ACK["instant '🔍 analyzing…' ack"]
+    ACK --&gt; AGENT["headless claude -p&lt;br/&gt;(/pre-trade skill, analyze-only tools)"]
+    AGENT --&gt; PANEL["replies: interpreted order + verdict + ✅/✖️ buttons"]
+    PANEL --&gt; TAP["you tap ✅ Place order  (or reply CONFIRM &amp;lt;token&amp;gt;)"]
+    TAP --&gt; SUBMIT["gate submit (the one write path; locks + BLOCK refusal honored)"]</code></pre>
+<p><strong>What you'll see (the phone experience):</strong>
+- Text <code>/help</code> any time for a quick how-to. New here? <code>/start</code>.
+- After you send an order you get an <strong>instant "🔍 analyzing…" ack</strong> (the read
+  takes ~a minute), then the verdict with <strong>tap-to-confirm ✅/✖️ buttons</strong> — no
+  need to type the token (typing <code>CONFIRM &lt;token&gt;</code> still works as a fallback).
+- The result is plain English and always says whether money moved:
+  <strong>✅ ORDER PLACED</strong> · <strong>🧪 PRACTICE MODE</strong> (safe/dry-run — nothing bought) ·
+  <strong>🛑 BLOCKED</strong> · <strong>⏳ expired</strong> (orders time out after ~5 min — just resend).
+- Tap <strong>✖️ Cancel</strong> to discard a staged order before it's placed.</p>
+<p>What to know:</p>
+<ul>
+<li><strong>One brain, reused.</strong> The agent <em>is</em> the natural-language parser — there is no
+  separate grammar. Say it however you like ("grab 2 micro nasdaq at 21000, stop
+  20900"); the agent interprets, then runs <code>python -m governor.gate analyze</code>.</li>
+<li><strong>The agent can never place an order.</strong> It is launched with
+  <code>--allowed-tools "Bash(python -m governor.gate analyze:*)" "Read"</code> — the gate's
+  <em>analyze</em> subcommand only. Placement happens solely when you reply <code>CONFIRM</code>,
+  which the daemon routes through <code>gate submit</code> (the single guarded chokepoint).</li>
+<li><strong>BLOCK can't be overridden from the phone.</strong> A BLOCK-staged order is refused at
+  submit time unless <code>--override</code> is passed, and the chat path never passes it.</li>
+<li><strong>Locks still rule.</strong> Under <code>dry_run</code>/<code>readonly</code> the order is analyzed and
+  replied but never sent. Placement needs <code>live.dry_run: false</code> <strong>and</strong>
+  <code>live.readonly: false</code> (see §8).</li>
+</ul>
+<h3 id="ask-the-bot-anything-read-only">Ask the bot anything (read-only)<a class="headerlink" href="#ask-the-bot-anything-read-only" title="Permanent link">&para;</a></h3>
+<p>The chat isn't only for orders — you can <strong>ask questions</strong>, and they never touch
+your account. There are two speeds:</p>
+<ul>
+<li><strong>Instant answers (sub-second).</strong> Common factual questions are answered
+  straight off the daemon's already-live connection — no subprocess, no new TWS
+  socket. Try <em>"what's my leverage?"</em>, <em>"how am I doing?"</em>, <em>"show my
+  positions"</em>, <em>"what did I trade today?"</em>, <em>"margin cushion?"</em>. These work even
+  if natural-language ordering is turned off.</li>
+<li><strong>Tap shortcuts.</strong> The bot registers a <code>/</code> command menu, so
+  <code>/leverage</code> · <code>/pnl</code> · <code>/positions</code> · <code>/today</code> · <code>/cushion</code> are one tap away.</li>
+<li><strong>Deeper questions (~a minute).</strong> Anything open-ended — <em>"analyze my book"</em>,
+  <em>"how does NVDA look?"</em>, <em>"any news on oracle?"</em> — goes to a <strong>read-only ask
+  agent</strong> (a second headless <code>claude -p</code> lane). It can read today's account data
+  (<code>governor.live.daily --json</code>), a symbol's setup
+  (<code>python -m governor.technicals &lt;SYMBOL&gt; --json</code> — a read that <strong>stages
+  nothing</strong>, unlike <code>gate analyze</code>), your research vault (<code>$VAULT_DIR</code>), and the
+  web for news. It has <strong>no trading authority</strong> — it answers, it never places or
+  stages.</li>
+</ul>
+<p>The daemon decides order-vs-question with a cheap heuristic; a misread is
+harmless because <strong>both lanes are read-only</strong> (the order lane only <em>stages</em>; you
+still confirm). When in doubt, end with a <code>?</code> and it's treated as a question.
+- <strong>Auth = your existing Claude Code login.</strong> No new API key. The daemon shells
+  the <code>claude</code> CLI exactly like the daily-summary does; under launchd that login
+  must be available to the daemon's environment.
+- <strong>Graceful when offline.</strong> If <code>claude</code> isn't on PATH the bot replies that
+  natural-language ordering is unavailable; the brake keeps running. To turn the
+  path off entirely, set <code>telegram_agent.enabled: false</code> in <code>config/rules.yaml</code>
+  (it ships enabled; <code>claude_bin</code> and <code>timeout_seconds</code> are also tunable there).</p>
+<hr />
+<h2 id="6-reading-a-verdict">6. Reading a verdict<a class="headerlink" href="#6-reading-a-verdict" title="Permanent link">&para;</a></h2>
+<p>Both halves speak the same language. <strong>The verdict only ever escalates toward caution — it never downgrades a hard stop.</strong></p>
+<table>
+<thead>
+<tr>
+<th>Verdict</th>
+<th>Means</th>
+<th>Your move</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>🟢 <strong>GO</strong></td>
+<td>Clean on the numbers <em>and</em> consistent with your notes (if any).</td>
+<td>Confirm if you still want it. (It still needs your tap.)</td>
+</tr>
+<tr>
+<td>🟡 <strong>CAUTION</strong></td>
+<td>A soft line: size over 1.5% NAV, concentration climbing, a WARN rule, or a relevant past mistake in your notes.</td>
+<td>Read the reason. Size down, or confirm deliberately.</td>
+</tr>
+<tr>
+<td>🔴 <strong>BLOCK</strong></td>
+<td>A hard line: an active lockout, a HARD rule would trip, or insufficient margin.</td>
+<td>Don't. If you truly must, the gate requires an explicit <code>--override</code>.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="6b-the-setup-read-setup-panel">6b. The setup read (📈 SETUP panel)<a class="headerlink" href="#6b-the-setup-read-setup-panel" title="Permanent link">&para;</a></h2>
+<p>The pre-trade gate automatically fetches daily bars for the symbol and renders a setup-quality panel — 📈 SETUP — alongside the risk panel. This costs one <code>reqHistoricalData</code> call on the gate's already-open socket and is fail-soft: if bars aren't available, the panel is absent and the verdict is unaffected.</p>
+<p><strong>What the panel shows:</strong></p>
+<p><em>Equities:</em>
+- <strong>Stage 2 X/7</strong> — Minervini's 7-criterion checklist: price above MA50 / MA150 / MA200, MA stack (50&gt;150&gt;200), MA200 slope rising, 52-week position ≥75%, and range ratio ≥1.3×. Classified as <code>confirmed</code> (6–7/7), <code>candidate</code> (4–5), or <code>none</code> (≤3).
+- <strong>VCP pivot / distance</strong> — the most recent contraction's pivot level, how far price is from it (five bands: <code>pre_breakout</code> = price still below the pivot; <code>actionable</code> = ≤5% above; <code>extended</code> = 5–10% above; <code>wait</code> = 10–15% above, let it come back; <code>too_late</code> = &gt;15% above), the last contraction grade, and a volume dry-up flag. The boolean <code>extended</code> flag (&gt;5% past pivot) is the gate trigger for CAUTION; <code>distance_band</code> is the finer-grained descriptive bucket.</p>
+<p><em>Futures:</em>
+- <strong>Trend alignment</strong> — price vs the 20/50/200-day MAs on the continuous contract. With-trend ✅, mixed 🟡, counter-trend 🔴.
+- <strong>Vol regime</strong> — ATR percentile over the prior 100 bars. Elevated (&gt;70th pctile) means stops may need widening; 🟡 when elevated.
+- <strong>Location / extension</strong> — distance from the 20-day high/low. At the range extreme (chasing): 🔴.
+- <strong>Momentum</strong> — RSI(14). Overbought on a long or oversold on a short: 🟡.</p>
+<p>A poor setup (Stage 2 not confirmed, extended past pivot, counter-trend, chasing, or elevated vol) escalates the verdict to <strong>CAUTION</strong>. It never blocks — only a hard rule or an active lockout can produce a BLOCK.</p>
+<p>VCP and Stage-2 are stock-only. For futures, the gate always runs the four-factor read.</p>
+<p><strong>Tuning the setup read via <code>setup:</code> in <code>config/rules.yaml</code>:</strong></p>
+<blockquote>
+<p>Note: the local <code>config/rules.yaml</code> is armed and skip-worktree. Edit your local copy directly; do not commit it.</p>
+</blockquote>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>setup.history_duration</code></td>
+<td><code>"1 Y"</code></td>
+<td>Duration string passed to <code>reqHistoricalData</code> (~252 daily bars)</td>
+</tr>
+<tr>
+<td><code>setup.min_bars</code></td>
+<td><code>200</code></td>
+<td>Fewer bars than this → setup marked <code>available: False</code></td>
+</tr>
+<tr>
+<td><code>setup.equities.stage2_confirmed_min</code></td>
+<td><code>6</code></td>
+<td>Minimum criteria count (of 7) to classify as <code>confirmed</code></td>
+</tr>
+<tr>
+<td><code>setup.equities.pivot_extended_pct</code></td>
+<td><code>0.05</code></td>
+<td>Distance past pivot (5%) → <code>extended</code> → CAUTION</td>
+</tr>
+<tr>
+<td><code>setup.equities.pivot_wait_pct</code></td>
+<td><code>0.10</code></td>
+<td>Distance past pivot (10%) → <code>wait</code> band (sits between <code>extended</code> and <code>too_late</code>)</td>
+</tr>
+<tr>
+<td><code>setup.equities.pivot_too_late_pct</code></td>
+<td><code>0.15</code></td>
+<td>Distance past pivot (15%) → <code>too_late</code></td>
+</tr>
+<tr>
+<td><code>setup.equities.contraction_loose_pct</code></td>
+<td><code>0.18</code></td>
+<td>Last contraction retracement &gt; 18% → <code>too_loose</code></td>
+</tr>
+<tr>
+<td><code>setup.futures.atr_elevated_pctile</code></td>
+<td><code>0.70</code></td>
+<td>ATR above this percentile → "elevated" vol → CAUTION</td>
+</tr>
+<tr>
+<td><code>setup.futures.extension_chase_pct</code></td>
+<td><code>0.02</code></td>
+<td>Within 2% of 20d high/low → "chasing" → CAUTION</td>
+</tr>
+<tr>
+<td><code>setup.futures.range_lookback</code></td>
+<td><code>20</code></td>
+<td>Bars to compute the recent high/low for the location factor</td>
+</tr>
+<tr>
+<td><code>setup.futures.atr_lookback</code></td>
+<td><code>100</code></td>
+<td>Bars window for the ATR percentile calculation</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Two known caveats — documented so they're not surprises:</strong></p>
+<ol>
+<li>
+<p><strong>Flat-vol → "elevated" (futures):</strong> The ATR percentile is computed by counting how many of the prior 100 bars have an ATR ≤ the current bar's ATR. In a dead-flat regime where every bar has the same range, the current bar ties or beats every prior bar — the percentile reads 1.0 (100th) and the panel shows 🟡 "elevated vol," even though there's no actual expansion. This is fail-safe behavior (CAUTION, never BLOCK). If it's noisy on a low-vol instrument, raise <code>setup.futures.atr_elevated_pctile</code> (e.g. to <code>0.80</code>).</p>
+</li>
+<li>
+<p><strong>MA200-rising needs ~221 bars:</strong> The "MA200 slope rising" Stage-2 criterion calculates a 200-bar moving average and then checks whether the MA itself has risen over a 20-bar lookback window — so it needs 200 bars for the MA <em>plus</em> 20 more to compare the slope endpoints. With the default <code>history_duration: "1 Y"</code> (~252 bars) this is comfortably met. For a name with only 200–220 bars of history, the slope criterion will evaluate to <code>False</code> even if the trend is clearly up, capping the Stage-2 score at 6/7. Production-moot with the default duration, documented here for the curious.</p>
+</li>
+</ol>
+<hr />
+<h2 id="7-the-rules-what-trips-it">7. The rules (what trips it)<a class="headerlink" href="#7-the-rules-what-trips-it" title="Permanent link">&para;</a></h2>
+<p>The full, always-current list is in <strong><a href="../RULES/">docs/RULES.md</a></strong> (generated from code — it can't drift). Quick view:</p>
+<ul>
+<li><strong>Futures:</strong> house-money lockout · daily-loss stop · overtrading (warn→halt) · overnight notional · live notional · same-contract churn</li>
+<li><strong>Equities:</strong> single-name &gt;15% · sector &gt;25% · re-trade &gt;2×/week · add-into-drawdown</li>
+<li><strong>Portfolio:</strong> margin cushion · gross leverage · drawdown moratorium</li>
+</ul>
+<p><strong>Tuning:</strong> every threshold lives in <code>config/rules.yaml</code> and is yours to change (validated on load). Want to know which key controls a rule? The <strong>Config keys</strong> column in <a href="../RULES/">RULES.md</a> maps each one.</p>
+<hr />
+<h2 id="8-going-live-arming">8. Going live (arming)<a class="headerlink" href="#8-going-live-arming" title="Permanent link">&para;</a></h2>
+<p>You ship SAFE and stay there until you deliberately flip <em>two</em> locks.</p>
+<pre class="mermaid"><code>stateDiagram-v2
+    [*] --&gt; SAFE
+    SAFE: SAFE — shipped default
+    SAFE: dry_run = true  AND  readonly = true
+    SAFE: actions are staged + logged, never sent
+    ARMED: ARMED
+    ARMED: dry_run = false  AND  readonly = false
+    ARMED: confirmed actions execute live
+    SAFE --&gt; ARMED: arming checklist done + flip BOTH locks
+    ARMED --&gt; SAFE: set either lock back to true</code></pre>
+<p><strong>Why two locks?</strong> <code>dry_run</code> is the app gate; <code>readonly</code> is the IBKR connection itself refusing writes. Both must be off to place live — defense in depth. (The gate warns you if you set <code>dry_run: false</code> but leave <code>readonly: true</code>, since orders would be silently rejected.)</p>
+<p><strong>Before flipping</strong> (full list in <a href="../SECURITY/">SECURITY.md</a>) — the code is ready; what's left is operational:
+1. Run the daemon once and watch a real alert → <code>CONFIRM</code> → "DRY-RUN would execute…" loop.
+2. Turn off TWS's "Read-Only API" setting, set <code>live.readonly: false</code>, then <code>live.dry_run: false</code>.</p>
+<p>Everything else (Telegram, trim idempotency, MNQ-notional accuracy) is already handled in code.</p>
+<hr />
+<h2 id="9-troubleshooting">9. Troubleshooting<a class="headerlink" href="#9-troubleshooting" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Symptom</th>
+<th>What it means</th>
+<th>Do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Gate says "could not connect to TWS"</td>
+<td>TWS/Gateway isn't up or the API is off</td>
+<td>Start TWS, enable the API on port 7496</td>
+</tr>
+<tr>
+<td>"🛑 BRAKE BLIND" alert</td>
+<td>The daemon lost data or can't read state</td>
+<td>It's failing <em>safe</em> — check TWS/connection; it never assumes all-clear</td>
+</tr>
+<tr>
+<td>"token invalid / expired" on submit</td>
+<td>The ~5-min staged token lapsed or was used</td>
+<td>Re-run the analysis to stage a fresh one</td>
+</tr>
+<tr>
+<td>A trade you want is BLOCKED</td>
+<td>A hard line genuinely trips</td>
+<td>Re-check the reason; if deliberate, <code>analyze … --override</code> then submit</td>
+</tr>
+<tr>
+<td><code>/pre-trade</code> not found</td>
+<td>Skills not installed / Claude Code not restarted</td>
+<td>Run the install in <a href="#3-one-time-setup">§3</a>, restart</td>
+</tr>
+<tr>
+<td>"armed but readonly" warning on submit</td>
+<td><code>dry_run</code> is off but <code>readonly</code> is on</td>
+<td>Set <code>live.readonly: false</code> (the second lock)</td>
+</tr>
+<tr>
+<td><strong>Disarm / roll back fast</strong> (stop all live action)</td>
+<td>You're armed and want to revert to safe</td>
+<td><strong>Stop the daemon</strong> (fastest), and/or set <code>live.dry_run: true</code> (or <code>readonly: true</code>) and restart it. <code>git checkout config/rules.yaml</code> restores the shipped-safe defaults.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="10-command-cheat-sheet">10. Command cheat-sheet<a class="headerlink" href="#10-command-cheat-sheet" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Analyze a trade (read-only; stages a confirm token). Prefer the /pre-trade skill, but direct:</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="nv">PYTHONPATH</span><span class="o">=</span>src<span class="w"> </span>.venv/bin/python<span class="w"> </span>-m<span class="w"> </span>governor.gate<span class="w"> </span>analyze<span class="w"> </span>buy<span class="w"> </span><span class="m">50</span><span class="w"> </span>ORCL<span class="w"> </span>--type<span class="w"> </span>limit<span class="w"> </span>--limit<span class="w"> </span><span class="m">145</span><span class="w"> </span>--json
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="nv">PYTHONPATH</span><span class="o">=</span>src<span class="w"> </span>.venv/bin/python<span class="w"> </span>-m<span class="w"> </span>governor.gate<span class="w"> </span>analyze<span class="w"> </span>short<span class="w"> </span><span class="m">2</span><span class="w"> </span>MNQ<span class="w"> </span>--sec-type<span class="w"> </span>fut<span class="w"> </span>--json
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="c1"># Submit a staged order (the only write path; needs the token from analyze + dry_run honored)</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="nv">PYTHONPATH</span><span class="o">=</span>src<span class="w"> </span>.venv/bin/python<span class="w"> </span>-m<span class="w"> </span>governor.gate<span class="w"> </span>submit<span class="w"> </span>--token<span class="w"> </span>4F2A9C1B
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="c1"># (a BLOCK-staged order is refused here unless you deliberately add --override)</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="c1"># Run the always-on circuit-breaker daemon</span>
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="nv">PYTHONPATH</span><span class="o">=</span>src<span class="w"> </span>.venv/bin/python<span class="w"> </span>-m<span class="w"> </span>governor.live.daemon
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>
+<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="c1"># See / regenerate the rule catalog</span>
+<a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="nv">PYTHONPATH</span><span class="o">=</span>src<span class="w"> </span>.venv/bin/python<span class="w"> </span>-m<span class="w"> </span>governor.rules.catalog<span class="w">   </span><span class="c1"># writes docs/RULES.md</span>
+<a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a>
+<a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a><span class="c1"># Tests</span>
+<a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a>.venv/bin/python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>-q
+</code></pre></div>
+<p>In Telegram you can <strong>start</strong> an order in plain language ("buy me 100 oracle
+here?") — the daemon's headless agent analyzes it and replies a token — and to
+place it you send back: <strong><code>CONFIRM &lt;token&gt;</code></strong>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.top", "navigation.instant", "navigation.tracking", "search.suggest", "search.highlight", "content.code.copy", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

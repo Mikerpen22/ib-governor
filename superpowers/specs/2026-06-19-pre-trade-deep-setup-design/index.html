@@ -1,0 +1,1193 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A behavioral circuit-breaker + pre-trade gate for Interactive Brokers (IBKR) trading discipline">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Pre-Trade Deep Setup Read — Design Spec - ib-governor</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="red" data-md-color-accent="red">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#pre-trade-deep-setup-read-design-spec" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="ib-governor" class="md-header__button md-logo" aria-label="ib-governor" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m20.84 22.73-1.67-1.67C17.7 22.85 15.5 24 13 24c-3.26 0-6.19-2-7.4-5l-3.03-7.63a1 1 0 0 1 1.24-1.32l.79.26c.56.19 1.02.61 1.24 1.16L7.25 15H8V9.89L1.11 3l1.28-1.27 19.72 19.73zM14 1.25a1.25 1.25 0 0 0-2.5 0V8.3l2.5 2.5zM21 16V5.75a1.25 1.25 0 0 0-2.5 0V12h-1V2.75a1.25 1.25 0 0 0-2.5 0v9.05l5.83 5.83c.11-.52.17-1.07.17-1.63M10.5 3.25a1.25 1.25 0 0 0-2.5 0V4.8l2.5 2.5z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            ib-governor
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Pre-Trade Deep Setup Read — Design Spec
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="red" data-md-color-accent="red"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="red" data-md-color-accent="red"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/Mikerpen22/ib-governor" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Mikerpen22/ib-governor
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="ib-governor" class="md-nav__button md-logo" aria-label="ib-governor" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m20.84 22.73-1.67-1.67C17.7 22.85 15.5 24 13 24c-3.26 0-6.19-2-7.4-5l-3.03-7.63a1 1 0 0 1 1.24-1.32l.79.26c.56.19 1.02.61 1.24 1.16L7.25 15H8V9.89L1.11 3l1.28-1.27 19.72 19.73zM14 1.25a1.25 1.25 0 0 0-2.5 0V8.3l2.5 2.5zM21 16V5.75a1.25 1.25 0 0 0-2.5 0V12h-1V2.75a1.25 1.25 0 0 0-2.5 0v9.05l5.83 5.83c.11-.52.17-1.07.17-1.63M10.5 3.25a1.25 1.25 0 0 0-2.5 0V4.8l2.5 2.5z"/></svg>
+
+    </a>
+    ib-governor
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Mikerpen22/ib-governor" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Mikerpen22/ib-governor
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../HANDBOOK/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operator's Handbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../RULES/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rule Catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../ORDER_TYPES/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Order Types
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../FORCLAUDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture & Lessons
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../SECURITY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Domain model & config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/rules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rules & engine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/gate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pre-trade gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/live/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Live daemon & snapshot
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/actions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Actions & state
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#goal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Goal
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#problem-confirmed-by-code-audit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Problem (confirmed by code audit)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#chosen-approach-a-vs-alternatives" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Chosen approach (A) vs alternatives
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#locked-decisions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Locked decisions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#component-design-file-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Component design &amp; file structure
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-types-frozen-in-technicalstypespy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data types (frozen; in technicals/types.py)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#thresholds-config-driven-defaults-seeded-from-the-vcp-skill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Thresholds (config-driven; defaults seeded from the /vcp skill)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Thresholds (config-driven; defaults seeded from the /vcp skill)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#setup-caution-rules-in-assesspy-surfaced-by-decide" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setup → CAUTION rules (in assess.py, surfaced by decide())
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#presentation-the-confirmation-screen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presentation (the confirmation screen)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data flow
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#error-handling-fail-soft-safety-first" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Error handling (fail-soft, safety-first)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#testing-strategy-tdd-maintain-80" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testing strategy (TDD; maintain 80%+)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phasing-each-phase-ships-independently" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phasing (each phase ships independently)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#safety-invariants-unchanged" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Safety invariants (unchanged)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="pre-trade-deep-setup-read-design-spec">Pre-Trade Deep Setup Read — Design Spec<a class="headerlink" href="#pre-trade-deep-setup-read-design-spec" title="Permanent link">&para;</a></h1>
+<p><strong>Date:</strong> 2026-06-19
+<strong>Status:</strong> Approved (brainstorm) → implementation
+<strong>Scope:</strong> Both pre-trade analysts (equities + futures), deep.</p>
+<h2 id="goal">Goal<a class="headerlink" href="#goal" title="Permanent link">&para;</a></h2>
+<p>Make the pre-trade gate <strong>comprehensive</strong> (systematic setup-quality analysis on real
+IBKR bars), <strong>fast</strong> (one connection, one call returns risk + setup), and
+<strong>beautiful</strong> (a structured, decision-first confirmation screen) — without weakening
+the existing risk-discipline gate.</p>
+<h2 id="problem-confirmed-by-code-audit">Problem (confirmed by code audit)<a class="headerlink" href="#problem-confirmed-by-code-audit" title="Permanent link">&para;</a></h2>
+<ul>
+<li>The gate fetches <strong>zero technicals</strong> for the candidate symbol. No historical bars,
+  no MAs, no 52-week position, no volume, no pivot. It is a pure <em>account-risk</em> gate
+  (sizing, margin, concentration, rule trips).</li>
+<li>The rigorous Minervini logic exists only in the separate <code>/vcp</code> skill, on a
+  <strong>different</strong> TWS connection (the <code>ibkr-tws</code> MCP, client 3), invoked by hand.</li>
+<li>"Slowness" is structural: every <code>analyze</code> is a cold process that opens its own TWS
+  socket (client 5) and tears it down; layering a VCP read on top today means a
+  <strong>second</strong> connection plus the model doing chart math in prose across tool round-trips.</li>
+<li>Presentation is unspecified: <code>pre-trade-equities</code> Step 6 just says "show … concisely",
+  so the confirmation screen varies run to run.</li>
+</ul>
+<h2 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h2>
+<p>The gate's existing philosophy holds and is <em>extended</em>, not replaced:</p>
+<blockquote>
+<p><strong>gate = deterministic facts + verdict (pure); skill = judgment + render.</strong></p>
+</blockquote>
+<p>The setup read enters as <strong>one more fact</strong> in <code>GateFacts</code>, fed by <strong>one more I/O call</strong>
+(<code>reqHistoricalData</code>) on the connection <code>analyze_intent</code> already holds. Everything
+computed from the bars is <strong>pure</strong> (mirrors <code>rules/</code>), config-driven (mirrors
+<code>config.py</code>), and fail-soft (mirrors <code>collect_market_backdrop</code> in <code>live/daily.py</code>).</p>
+<h3 id="chosen-approach-a-vs-alternatives">Chosen approach (A) vs alternatives<a class="headerlink" href="#chosen-approach-a-vs-alternatives" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Where technicals live</th>
+<th>Verdict</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>A — gate-native (CHOSEN)</strong></td>
+<td>Gate fetches bars on its open socket; pure-Python compute</td>
+<td>One connection, one call, deterministic + testable</td>
+</tr>
+<tr>
+<td>B — skill calls <code>/vcp</code> (MCP)</td>
+<td>Separate MCP connection; LLM does the math</td>
+<td>Second connection + in-prose math = the slowness we're removing</td>
+</tr>
+<tr>
+<td>C — standalone analyzer process</td>
+<td>A third service</td>
+<td>More moving parts, another cold start</td>
+</tr>
+</tbody>
+</table>
+<h2 id="locked-decisions">Locked decisions<a class="headerlink" href="#locked-decisions" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Scope:</strong> both paths deep.</li>
+<li><strong>Setup → verdict:</strong> a poor/extended setup escalates to <strong>CAUTION</strong>. It NEVER
+  downgrades a risk BLOCK and NEVER hard-blocks on its own (mirrors <code>size &gt; 1.5% NAV</code>).</li>
+<li><strong>Equities setup:</strong> Minervini Stage 2 (7-point) + VCP contraction read.</li>
+<li><strong>Futures setup:</strong> four factors — trend alignment, volatility regime,
+  extension/location, momentum.</li>
+<li><strong>Render split:</strong> Python renders the <strong>Order / Risk / Setup</strong> panels
+  deterministically; the <strong>skill</strong> owns the banner + final Verdict + Vault + confirm,
+  so the headline always reflects the user's final (possibly vault-escalated) call.</li>
+<li><strong>Out of scope (YAGNI):</strong> in-gate parallelization of IBKR calls (optional later);
+  a warm socket-reuse daemon; non-US-equity Stage 2 nuances.</li>
+</ul>
+<h2 id="component-design-file-structure">Component design &amp; file structure<a class="headerlink" href="#component-design-file-structure" title="Permanent link">&para;</a></h2>
+<p>New work, as small focused files. <code>technicals/</code> is <strong>pure</strong> — no <code>ib_async</code> import.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>src/governor/technicals/            (NEW — pure computation, no IBKR)
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>  __init__.py
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>  types.py          Bar, Stage2Result, VcpResult, EquitySetup, FuturesSetup, SetupAssessment
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>  indicators.py     sma, atr, rsi, roc, slope, pct_from_high, pct_from_low, percentile
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>  stage2.py         Minervini 7-point checklist  -&gt; Stage2Result
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>  vcp.py            contraction-sequence detection, pivot, distance, volume dry-up -&gt; VcpResult
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>  equity_setup.py   compose Stage2Result + VcpResult -&gt; EquitySetup (+ poor/extended flags)
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>  futures_setup.py  trend / vol-regime / location / momentum -&gt; FuturesSetup (+ poor flags)
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>  assess.py         assess_setup(asset_class, bars, intent, cfg) -&gt; SetupAssessment
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>src/governor/live/history.py        (NEW)
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>  fetch_daily_bars(ib, contract, duration) -&gt; list[Bar] | None   # fail-soft
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>src/governor/gate/render.py         (NEW)
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>  render_panels(preview: dict) -&gt; str   # Order/Risk/Setup markdown; pure (dict in, str out)
+</code></pre></div>
+<p>Modified:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>src/governor/gate/analysis.py   GateFacts gains `setup: SetupAssessment | None`;
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>                                decide() adds a setup-driven CAUTION clause.
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>src/governor/gate/runner.py     analyze_intent: after qualify(), fetch bars + assess_setup;
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>                                put setup into GateFacts; add setup + panels to preview dict.
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>src/governor/config.py          add SetupRules (EquitySetupRules + FuturesSetupRules + history);
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>                                RulesConfig gains `setup: SetupRules`.
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>config/rules.yaml               document the new `setup:` block (defaults below).
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>skills/pre-trade-equities/SKILL.md   Step 4 becomes &quot;Setup (Minervini)&quot;; Step 6 uses panels.
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>skills/pre-trade-futures/SKILL.md    add the futures setup section + panels.
+</code></pre></div>
+<h2 id="data-types-frozen-in-technicalstypespy">Data types (frozen; in <code>technicals/types.py</code>)<a class="headerlink" href="#data-types-frozen-in-technicalstypespy" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>Bar(date: str, open: float, high: float, low: float, close: float, volume: float)</code></li>
+<li><code>Stage2Result</code>: <code>price, ma50, ma150, ma200, slope_up: bool, position_pct, range_ratio,
+  criteria: tuple[tuple[str,bool],...], pass_count: int, classification: str</code>
+  (<code>"confirmed" | "candidate" | "none"</code>).</li>
+<li><code>VcpResult</code>: <code>available: bool, contractions: tuple[tuple[float,float,float],...]</code> (high,
+  low, retr%), <code>is_contracting: bool, last_contraction_pct, last_grade: str, pivot,
+  distance_pct, distance_band: str, volume_dryup: bool</code>.</li>
+<li><code>EquitySetup</code>: <code>stage2: Stage2Result, vcp: VcpResult, extended: bool, poor: bool</code>.</li>
+<li><code>FuturesSetup</code>: <code>with_trend: bool, trend_label, atr, atr_pctile, vol_label,
+  vol_expanding: bool, dist_from_high_pct, dist_from_low_pct, chasing: bool, rsi,
+  roc, momentum_label, counter_trend: bool, vol_elevated: bool, poor: bool</code>.</li>
+<li><code>SetupAssessment</code>: <code>available: bool, asset_class: str, poor: bool,
+  caution_reasons: tuple[str,...], equity: EquitySetup | None,
+  futures: FuturesSetup | None</code>. This is the only type <code>GateFacts</code> carries.</li>
+</ul>
+<h2 id="thresholds-config-driven-defaults-seeded-from-the-vcp-skill">Thresholds (config-driven; defaults seeded from the <code>/vcp</code> skill)<a class="headerlink" href="#thresholds-config-driven-defaults-seeded-from-the-vcp-skill" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">setup</span><span class="p">:</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">history_duration</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;1</span><span class="nv"> </span><span class="s">Y&quot;</span><span class="w">        </span><span class="c1"># reqHistoricalData duration for the candidate</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span><span class="nt">min_bars</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">200</span><span class="w">                  </span><span class="c1"># need 200+ closes for MA200; below -&gt; &quot;insufficient&quot;</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span><span class="nt">equities</span><span class="p">:</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="nt">stage2_confirmed_min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">6</span><span class="w">      </span><span class="c1"># of 7 criteria -&gt; &quot;confirmed&quot;</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="nt">stage2_candidate_min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span><span class="w">      </span><span class="c1"># 4-5 -&gt; &quot;candidate&quot;; &lt;=3 -&gt; &quot;none&quot;</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">    </span><span class="nt">high_proximity_pct</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.75</span><span class="w">     </span><span class="c1"># (price-low)/(high-low) &gt;= this  (within 25% of 52wk high)</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">    </span><span class="nt">min_range_ratio</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.30</span><span class="w">        </span><span class="c1"># 52wk high/low &gt;= this</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">    </span><span class="nt">ma200_slope_lookback</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">20</span><span class="w">     </span><span class="c1"># MA200[-1] &gt; MA200[-1-lookback] -&gt; rising</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">    </span><span class="nt">pivot_extended_pct</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.05</span><span class="w">     </span><span class="c1"># &gt; this past pivot -&gt; extended -&gt; CAUTION</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">    </span><span class="nt">pivot_too_late_pct</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.15</span><span class="w">     </span><span class="c1"># &gt; this past pivot -&gt; &quot;too late&quot;</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">    </span><span class="nt">contraction_loose_pct</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.18</span><span class="w">  </span><span class="c1"># last contraction deeper than this -&gt; &quot;too loose&quot;</span>
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="w">  </span><span class="nt">futures</span><span class="p">:</span>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="w">    </span><span class="nt">ma_fast</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">20</span>
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="w">    </span><span class="nt">ma_mid</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">50</span>
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="w">    </span><span class="nt">ma_slow</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">200</span>
+<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="w">    </span><span class="nt">atr_period</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">14</span>
+<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="w">    </span><span class="nt">atr_lookback</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100</span><span class="w">            </span><span class="c1"># window for the ATR percentile</span>
+<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a><span class="w">    </span><span class="nt">atr_elevated_pctile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.70</span><span class="w">    </span><span class="c1"># ATR percentile above this -&gt; elevated vol -&gt; CAUTION</span>
+<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a><span class="w">    </span><span class="nt">atr_compressed_pctile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.30</span>
+<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a><span class="w">    </span><span class="nt">range_lookback</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">20</span><span class="w">           </span><span class="c1"># 20-day high/low for the location check</span>
+<a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a><span class="w">    </span><span class="nt">extension_chase_pct</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.02</span><span class="w">    </span><span class="c1"># entering within this of the 20d extreme in trade dir -&gt; chasing</span>
+<a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a><span class="w">    </span><span class="nt">rsi_period</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">14</span>
+<a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a><span class="w">    </span><span class="nt">rsi_overbought</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">70</span>
+<a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a><span class="w">    </span><span class="nt">rsi_oversold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span>
+</code></pre></div>
+<h3 id="setup-caution-rules-in-assesspy-surfaced-by-decide">Setup → CAUTION rules (in <code>assess.py</code>, surfaced by <code>decide()</code>)<a class="headerlink" href="#setup-caution-rules-in-assesspy-surfaced-by-decide" title="Permanent link">&para;</a></h3>
+<p><strong>Equities</strong> — <code>poor=True</code> (→ CAUTION) when any of:
+- Stage 2 not confirmed (<code>classification != "confirmed"</code>), or
+- past the pivot beyond <code>pivot_extended_pct</code> (extended), or
+- last contraction looser than <code>contraction_loose_pct</code>.</p>
+<p><strong>Futures</strong> — <code>poor=True</code> (→ CAUTION) when any of:
+- counter-trend (trade direction opposes the 20/50/200 alignment), or
+- chasing (entering within <code>extension_chase_pct</code> of the 20-day extreme in the trade
+  direction), or
+- elevated vol (<code>atr_pctile &gt; atr_elevated_pctile</code>).</p>
+<p><code>caution_reasons</code> carries a human string per triggered condition; <code>decide()</code> appends
+them to the CAUTION list. Never BLOCK; never downgrade a risk BLOCK.</p>
+<h2 id="presentation-the-confirmation-screen">Presentation (the confirmation screen)<a class="headerlink" href="#presentation-the-confirmation-screen" title="Permanent link">&para;</a></h2>
+<p>Python <code>render_panels()</code> emits the middle three panels; the skill wraps them.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━   &lt;- banner: skill (final verdict)
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>🟡  CAUTION  ·  BUY 50 ORCL · Adaptive Mkt
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>📋 ORDER                                        &lt;- panels: render.py
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>   Buy 50 ORCL · Adaptive Market (Normal) · DAY
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>   Ref ~$145.20 · notional $7,260
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>💰 RISK &amp; SIZING
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>   Size          $7,260   2.0% NAV      ⚠️ &gt;1.5%
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>   Buying power  ok ✅      init margin $3,630
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a>   ORCL weight   4.1% → 5.8%
+<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>   Rule trips    none
+<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>
+<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a>📈 SETUP — Minervini   (Stage 2: 5/7 · candidate)
+<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a>   vs MA50/150/200    ✅ ✅ ✅   above all
+<a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a>   MA stack           ✅ 50&gt;150&gt;200
+<a id="__codelineno-3-18" name="__codelineno-3-18" href="#__codelineno-3-18"></a>   MA200 slope        ✅ rising 1mo
+<a id="__codelineno-3-19" name="__codelineno-3-19" href="#__codelineno-3-19"></a>   52-wk position     🟡 68%   (want ≥75%)
+<a id="__codelineno-3-20" name="__codelineno-3-20" href="#__codelineno-3-20"></a>   Range ≥1.3x        ✅ 1.9x
+<a id="__codelineno-3-21" name="__codelineno-3-21" href="#__codelineno-3-21"></a>   VCP last contract  🟢 6%    tight
+<a id="__codelineno-3-22" name="__codelineno-3-22" href="#__codelineno-3-22"></a>   Pivot $147.80      🟡 +7%   extended
+<a id="__codelineno-3-23" name="__codelineno-3-23" href="#__codelineno-3-23"></a>
+<a id="__codelineno-3-24" name="__codelineno-3-24" href="#__codelineno-3-24"></a>🧭 VERDICT — CAUTION                            &lt;- skill (synthesizes setup + vault)
+<a id="__codelineno-3-25" name="__codelineno-3-25" href="#__codelineno-3-25"></a>   &lt;one paragraph: the call + the one thing that would change it&gt;
+<a id="__codelineno-3-26" name="__codelineno-3-26" href="#__codelineno-3-26"></a>
+<a id="__codelineno-3-27" name="__codelineno-3-27" href="#__codelineno-3-27"></a>📓 VAULT                                        &lt;- skill
+<a id="__codelineno-3-28" name="__codelineno-3-28" href="#__codelineno-3-28"></a>   &lt;thesis / prior lessons, woven in&gt;
+<a id="__codelineno-3-29" name="__codelineno-3-29" href="#__codelineno-3-29"></a>
+<a id="__codelineno-3-30" name="__codelineno-3-30" href="#__codelineno-3-30"></a>─────────────────────────────────────────────
+<a id="__codelineno-3-31" name="__codelineno-3-31" href="#__codelineno-3-31"></a>Confirm? Reply &quot;yes&quot; to submit · token expires ~5 min
+</code></pre></div>
+<p>Futures SETUP panel (four factors):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>📈 SETUP — Futures read   (⚠️ counter-trend)
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>   Trend 20/50/200   🔴 above all — shorting an uptrend
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>   Vol regime        🟡 ATR 78th pct — expanding, widen stops
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>   Location          🟢 +0.4% vs 5d high — fading the extension
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>   Momentum RSI(14)  🟡 71 overbought — supports a fade
+</code></pre></div>
+<h2 id="data-flow">Data flow<a class="headerlink" href="#data-flow" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>skill (pre-trade-equities | pre-trade-futures)
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>  → ONE call: python -m governor.gate analyze … --json
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>      gate (single socket, gate_client_id=5):
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>        qualify(contract)
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>        whatIfOrder(margin)            [risk]
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>        reqHistoricalData(1Y daily)    [setup]  ← NEW, same socket, right after qualify
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>        assess_setup(bars …)           [pure: Stage2+VCP | futures 4-factor]
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>        account snapshot + rule engine [risk trips]
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>        decide(facts incl. setup)      → verdict (risk + setup-CAUTION)
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>        render_panels(preview)         → markdown
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>      ← JSON { verdict, risk facts, setup, panels, token }
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>  → skill reads vault for the symbol
+<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a>  → skill shows: banner + panels + VERDICT + VAULT + confirm
+<a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a>  → user &quot;yes&quot; → gate submit --token
+</code></pre></div>
+<h2 id="error-handling-fail-soft-safety-first">Error handling (fail-soft, safety-first)<a class="headerlink" href="#error-handling-fail-soft-safety-first" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>fetch_daily_bars</code> wraps <code>reqHistoricalData</code> in try/except → returns <code>None</code> on any
+  error (matches <code>_fetch_daily_bars</code> in <code>live/daily.py</code>). Never sinks the gate.</li>
+<li>Insufficient history (<code>&lt; setup.min_bars</code>, e.g. a recent IPO) → <code>SetupAssessment(
+  available=False)</code>; the SETUP panel shows "insufficient data", and the verdict falls
+  back to <strong>risk-only</strong> (no setup escalation). The safety-critical risk gate is never
+  blocked by a setup failure.</li>
+<li>Delayed/frozen market-data type 4 is fine — historical bars are entitled without a
+  live subscription (the daily collector already relies on this).</li>
+</ul>
+<h2 id="testing-strategy-tdd-maintain-80">Testing strategy (TDD; maintain 80%+)<a class="headerlink" href="#testing-strategy-tdd-maintain-80" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>indicators.py:</strong> unit tests vs textbook values (SMA of a known series; RSI of the
+  canonical Wilder example; ATR; percentile).</li>
+<li><strong>stage2 / vcp / futures_setup:</strong> synthetic <code>Bar</code> arrays encoding known patterns — a
+  clean Stage 2, a non-Stage-2 downtrend, a textbook decreasing-contraction VCP, an
+  extended entry, a counter-trend future, an elevated-vol regime.</li>
+<li><strong>assess.py:</strong> poor-setup flags fire on the right inputs; <code>available=False</code> on short
+  history.</li>
+<li><strong>decide() integration:</strong> a poor setup escalates GO→CAUTION; never downgrades a HARD
+  BLOCK; never produces BLOCK on its own (mirrors the daemon edge-trigger tests).</li>
+<li><strong>render.py:</strong> panels contain the verdict-relevant numbers and the right flag glyphs;
+  golden-string assertions on a fixed preview dict.</li>
+<li><strong>history.py:</strong> fake <code>ib</code> returns bars → <code>list[Bar]</code>; raising <code>ib</code> → <code>None</code>.</li>
+<li>Live/integration paths skip when TWS is absent (existing convention).</li>
+</ul>
+<h2 id="phasing-each-phase-ships-independently">Phasing (each phase ships independently)<a class="headerlink" href="#phasing-each-phase-ships-independently" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong><code>technicals/</code> core</strong> — <code>types.py</code>, <code>indicators.py</code>, <code>stage2.py</code>,
+   <code>futures_setup.py</code>, <code>assess.py</code> (equity path minus VCP, futures full) + tests.
+   Pure, zero IBKR, high value, no risk.</li>
+<li><strong>Bar fetch + wire-in</strong> — <code>live/history.py</code>; <code>analyze_intent</code> fetches bars and calls
+   <code>assess_setup</code>; <code>setup</code> added to the preview dict (fail-soft). No verdict change yet.</li>
+<li><strong>Verdict escalation</strong> — <code>GateFacts.setup</code> + <code>decide()</code> CAUTION clause + config
+   <code>SetupRules</code> + tests.</li>
+<li><strong>VCP</strong> — <code>vcp.py</code> contraction detection + pivot/distance/volume; fold into
+   <code>equity_setup.py</code>. Isolated so it can't destabilize phases 1–3.</li>
+<li><strong>Render</strong> — <code>gate/render.py</code> panels; JSON <code>panels</code> field; update both SKILL.md files
+   (Step 4 "Setup", Step 6 banner+panels+confirm).</li>
+<li><strong>Futures skill parity + docs</strong> — <code>pre-trade-futures</code> setup section; refresh
+   <code>docs/FORCLAUDE.md</code> (architecture) + <code>docs/HANDBOOK.md</code> (the new setup read).</li>
+</ol>
+<h2 id="safety-invariants-unchanged">Safety invariants (unchanged)<a class="headerlink" href="#safety-invariants-unchanged" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>analyze_intent</code> stays READ-ONLY; the only write path remains
+  <code>actions/executor.py</code> (<code>_guarded</code>). The bar fetch is a read.</li>
+<li><code>config/rules.yaml</code> continues to ship SAFE (<code>dry_run: true</code>, <code>readonly: true</code>);
+  the armed local copy is never committed.</li>
+<li>Every submit stays confirm-gated behind the single-use token.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.sections", "navigation.top", "navigation.instant", "navigation.tracking", "search.suggest", "search.highlight", "content.code.copy", "toc.follow"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

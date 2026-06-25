@@ -1,0 +1,1716 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A behavioral circuit-breaker + pre-trade gate for Interactive Brokers (IBKR) trading discipline">
+      
+      
+      
+      
+        <link rel="prev" href="../ORDER_TYPES/">
+      
+      
+        <link rel="next" href="../SECURITY/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Architecture & Lessons - ib-governor</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="red" data-md-color-accent="red">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#for-claude-ib-governor-explained" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="ib-governor" class="md-header__button md-logo" aria-label="ib-governor" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m20.84 22.73-1.67-1.67C17.7 22.85 15.5 24 13 24c-3.26 0-6.19-2-7.4-5l-3.03-7.63a1 1 0 0 1 1.24-1.32l.79.26c.56.19 1.02.61 1.24 1.16L7.25 15H8V9.89L1.11 3l1.28-1.27 19.72 19.73zM14 1.25a1.25 1.25 0 0 0-2.5 0V8.3l2.5 2.5zM21 16V5.75a1.25 1.25 0 0 0-2.5 0V12h-1V2.75a1.25 1.25 0 0 0-2.5 0v9.05l5.83 5.83c.11-.52.17-1.07.17-1.63M10.5 3.25a1.25 1.25 0 0 0-2.5 0V4.8l2.5 2.5z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            ib-governor
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Architecture & Lessons
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="red" data-md-color-accent="red"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="red" data-md-color-accent="red"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/Mikerpen22/ib-governor" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Mikerpen22/ib-governor
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="ib-governor" class="md-nav__button md-logo" aria-label="ib-governor" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m20.84 22.73-1.67-1.67C17.7 22.85 15.5 24 13 24c-3.26 0-6.19-2-7.4-5l-3.03-7.63a1 1 0 0 1 1.24-1.32l.79.26c.56.19 1.02.61 1.24 1.16L7.25 15H8V9.89L1.11 3l1.28-1.27 19.72 19.73zM14 1.25a1.25 1.25 0 0 0-2.5 0V8.3l2.5 2.5zM21 16V5.75a1.25 1.25 0 0 0-2.5 0V12h-1V2.75a1.25 1.25 0 0 0-2.5 0v9.05l5.83 5.83c.11-.52.17-1.07.17-1.63M10.5 3.25a1.25 1.25 0 0 0-2.5 0V4.8l2.5 2.5z"/></svg>
+
+    </a>
+    ib-governor
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Mikerpen22/ib-governor" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Mikerpen22/ib-governor
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../HANDBOOK/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operator's Handbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../RULES/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rule Catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ORDER_TYPES/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Order Types
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture & Lessons
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture & Lessons
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-this-project-actually-is" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this project actually is
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#technical-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Technical Architecture
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#codebase-structure-what-exists-today" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Codebase Structure (what exists today)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#technologies-used-and-why" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Technologies Used (and why)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#technical-decisions-the-why-behind-the-choices" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Technical Decisions (the "why" behind the choices)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#lessons-learned" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Lessons Learned
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#plan-2-live-wiring-built-merged" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Plan 2 — Live Wiring (built &amp; merged)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Plan 2 — Live Wiring (built &amp; merged)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#more-lessons-plan-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        More lessons (Plan 2)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#plan-3-comms-confirm-gated-actions-built-merged" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Plan 3 — Comms &amp; Confirm-Gated Actions (built &amp; merged)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Plan 3 — Comms &amp; Confirm-Gated Actions (built &amp; merged)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#more-lessons-plan-3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        More lessons (Plan 3)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#arming-checklist-before-ever-setting-livedry_run-false" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ⚠️ Arming checklist (before ever setting live.dry_run: false)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#plan-4-equities-portfolio-rules-the-rule-catalog-built-merged" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Plan 4 — Equities &amp; Portfolio Rules + the Rule Catalog (built &amp; merged)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Plan 4 — Equities &amp; Portfolio Rules + the Rule Catalog (built &amp; merged)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#lesson-plan-4-catalog" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Lesson (Plan 4 / catalog)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#plan-5-the-pre-trade-gate-built-merged" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Plan 5 — The Pre-Trade Gate (built &amp; merged)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Plan 5 — The Pre-Trade Gate (built &amp; merged)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#lessons-plan-5-the-richest-yet" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Lessons (Plan 5 — the richest yet)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-6-setup-read-the-gate-learns-to-look-at-the-chart" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 6 — Setup Read: The Gate Learns to Look at the Chart
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 6 — Setup Read: The Gate Learns to Look at the Chart">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-gap-the-gate-had" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The gap the gate had
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How it works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#where-the-rendering-lives" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the rendering lives
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lessons-from-this-phase" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Lessons from this phase
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-7-order-from-telegram-built-merged" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 7 — Order from Telegram (built &amp; merged)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 7 — Order from Telegram (built &amp; merged)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-shape-a-thin-bridge-one-reused-brain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The shape: a thin bridge, one reused brain
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-block-guarantee-is-in-code-not-in-trust" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The BLOCK guarantee is in code, not in trust
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lessons" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Lessons
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-8-the-chat-becomes-a-cockpit-qa-ux" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 8 — the chat becomes a cockpit (Q&amp;A + UX)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 8 — the chat becomes a cockpit (Q&amp;A + UX)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#lessons_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Lessons
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../SECURITY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Domain model & config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/rules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rules & engine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/gate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pre-trade gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/live/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Live daemon & snapshot
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/actions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Actions & state
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-this-project-actually-is" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this project actually is
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#technical-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Technical Architecture
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#codebase-structure-what-exists-today" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Codebase Structure (what exists today)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#technologies-used-and-why" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Technologies Used (and why)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#technical-decisions-the-why-behind-the-choices" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Technical Decisions (the "why" behind the choices)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#lessons-learned" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Lessons Learned
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#plan-2-live-wiring-built-merged" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Plan 2 — Live Wiring (built &amp; merged)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Plan 2 — Live Wiring (built &amp; merged)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#more-lessons-plan-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        More lessons (Plan 2)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#plan-3-comms-confirm-gated-actions-built-merged" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Plan 3 — Comms &amp; Confirm-Gated Actions (built &amp; merged)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Plan 3 — Comms &amp; Confirm-Gated Actions (built &amp; merged)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#more-lessons-plan-3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        More lessons (Plan 3)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#arming-checklist-before-ever-setting-livedry_run-false" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ⚠️ Arming checklist (before ever setting live.dry_run: false)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#plan-4-equities-portfolio-rules-the-rule-catalog-built-merged" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Plan 4 — Equities &amp; Portfolio Rules + the Rule Catalog (built &amp; merged)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Plan 4 — Equities &amp; Portfolio Rules + the Rule Catalog (built &amp; merged)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#lesson-plan-4-catalog" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Lesson (Plan 4 / catalog)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#plan-5-the-pre-trade-gate-built-merged" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Plan 5 — The Pre-Trade Gate (built &amp; merged)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Plan 5 — The Pre-Trade Gate (built &amp; merged)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#lessons-plan-5-the-richest-yet" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Lessons (Plan 5 — the richest yet)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-6-setup-read-the-gate-learns-to-look-at-the-chart" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 6 — Setup Read: The Gate Learns to Look at the Chart
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 6 — Setup Read: The Gate Learns to Look at the Chart">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-gap-the-gate-had" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The gap the gate had
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How it works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#where-the-rendering-lives" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the rendering lives
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lessons-from-this-phase" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Lessons from this phase
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-7-order-from-telegram-built-merged" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 7 — Order from Telegram (built &amp; merged)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 7 — Order from Telegram (built &amp; merged)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-shape-a-thin-bridge-one-reused-brain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The shape: a thin bridge, one reused brain
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-block-guarantee-is-in-code-not-in-trust" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The BLOCK guarantee is in code, not in trust
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lessons" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Lessons
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-8-the-chat-becomes-a-cockpit-qa-ux" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 8 — the chat becomes a cockpit (Q&amp;A + UX)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 8 — the chat becomes a cockpit (Q&amp;A + UX)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#lessons_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Lessons
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="for-claude-ib-governor-explained">FOR CLAUDE — ib-governor, Explained<a class="headerlink" href="#for-claude-ib-governor-explained" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>A living explainer for <code>~/ib-governor</code>. Written in plain language so that
+anyone can pick this up cold. Updated as the project is built.
+<strong>Status:</strong> <strong>All plans built &amp; merged — the circuit-breaker (futures/equities/portfolio) and the pre-trade gate are complete (284 tests).</strong> Ships SAFE: <code>dry_run</code> <em>and</em> <code>readonly</code> both default-closed; see the Arming Checklist before going live.</p>
+<p><strong>Scope note: options are descoped — futures + equities + portfolio only.</strong></p>
+</blockquote>
+<hr />
+<h2 id="what-this-project-actually-is">What this project actually is<a class="headerlink" href="#what-this-project-actually-is" title="Permanent link">&para;</a></h2>
+<p>A governor caps an engine's max RPM. <strong>ib-governor</strong> caps overtrading. It targets a common discipline failure — <em>the analysis is fine; giving back gains by overtrading after a win is what does the damage.</em> It's a documented behavioral pattern: a run of impulsive trades after a big win, oversized overnight leverage, churning the same name. The fix isn't better analysis — it's a mechanism that makes the disciplined plan actually get followed.</p>
+<p>This project is that mechanism. Not a robo-advisor that tells you what to buy — that's a different problem. It's a <strong>trustworthy, data-driven co-pilot that sits between the trader and a bad trade</strong>, grounded in rules set in advance and (optionally) in the trader's own written-down learnings.</p>
+<p>It is really <strong>two machines wearing one coat</strong>, because the two ways a disciplined plan breaks happen at opposite moments:</p>
+<ul>
+<li><strong>The circuit-breaker</strong> — watches account <em>state</em> (P&amp;L, trade count, leverage) and, when a line set in cold blood is crossed, <em>reacts</em>: it alerts and stages a corrective action. This is the backstop for impulsive GUI churn that's too fast to pre-screen.</li>
+<li><strong>The pre-trade gate</strong> — for <em>deliberate</em> trades routed through a tool, it analyzes the trade <em>before</em> it executes (sizing, thesis↔instrument fit, optional notes-grounded learnings) and won't submit until the trader confirms.</li>
+</ul>
+<p>Iron rule across both: <strong>nothing ever touches the account without an explicit tap.</strong> A bug can annoy you; it can never trade for you.</p>
+<hr />
+<h2 id="technical-architecture">Technical Architecture<a class="headerlink" href="#technical-architecture" title="Permanent link">&para;</a></h2>
+<p>Think of it as a nervous system with four layers:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a> Telegram (2-way) + macOS  ──  COMMS    &quot;you&#39;re in the house-money zone — lock out? [confirm]&quot;
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>            │
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a> Python daemon (always on) ──  BRAIN-STEM (reflexes)   deterministic, NO LLM, ~arithmetic
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>            │ escalates only on a trip / at the gate
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a> Claude skills            ──  CORTEX (judgment)        deep per-asset analysts, on-demand
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>            │
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a> ibkr-cli + ib_async      ──  SENSES                   live positions, P&amp;L, fills, orders
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>            │
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a> notes + rules.yaml       ──  MEMORY                   optional learnings + tunable thresholds
+</code></pre></div>
+<p>The load-bearing idea: <strong>the reflexes are deliberately dumb.</strong> The always-on part that decides "is a line crossed?" is plain Python you can read in one sitting — no LLM in the hot path. The LLM (cortex) only runs <em>after</em> a deterministic trip, to add reasoning ("here's <em>why</em> this matters"). Reflexes are arithmetic; judgment is reasoning; they live in separate boxes. That separation is the whole trust story — nobody keeps believing a brake that hallucinated a P&amp;L number.</p>
+<p>The rules are <strong>segregated by asset class</strong> (futures / equities / portfolio) because each class fails differently: futures = churn + overnight leverage; equities = concentration + chasing.</p>
+<hr />
+<h2 id="codebase-structure-what-exists-today">Codebase Structure (what exists today)<a class="headerlink" href="#codebase-structure-what-exists-today" title="Permanent link">&para;</a></h2>
+<p>Plan 1 built the <strong>deterministic core</strong> — pure logic, zero I/O, so it's provable at memory speed:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>src/governor/
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>  model.py        # immutable types: StateSnapshot, Trip, AssetClass, Severity, ActionType
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>  config.py       # pydantic-validated thresholds; loads config/rules.yaml
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>  rules/
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    futures.py    # the six futures safeguards, each a pure (snapshot, cfg) -&gt; Trip|None
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    engine.py     # evaluate(snapshot, config) -&gt; list[Trip]   ← the one thing later plans call
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>config/rules.yaml # every threshold, with sensible defaults, tunable
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>tests/            # 37 tests, 100% coverage, incl. a historical-replay acceptance test
+</code></pre></div>
+<p><strong>The public surface later plans build on:</strong> <code>evaluate(snapshot, config)</code>, <code>StateSnapshot</code>, <code>Trip</code>, <code>RulesConfig</code>. That's it. Everything downstream (the daemon, the comms, the gate) consumes these and nothing else.</p>
+<p><strong>Built since (each has a section below):</strong> Plan 2 (live wiring — daemon + snapshot builder), Plan 3 (Telegram + staged actions), Plan 4 (equities/portfolio rules + the rule catalog), Plan 5 (the pre-trade gate + analyst skills). The gate added <code>src/governor/gate/</code> (intent · analysis · staged · runner · cli) and <code>skills/pre-trade*</code>.</p>
+<hr />
+<h2 id="technologies-used-and-why">Technologies Used (and why)<a class="headerlink" href="#technologies-used-and-why" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Python 3.12</strong> — matches the <code>ibkr-cli</code> ecosystem this builds on; the tooling is all there already.</li>
+<li><strong><code>ib_async</code></strong> — the library <code>ibkr-cli</code> already wraps; it talks to TWS and (verified) natively supports futures, equities, what-if previews. We extend it rather than reinvent.</li>
+<li><strong><code>pydantic</code> v2</strong> — validates <code>rules.yaml</code> on load, so a fat-fingered threshold fails loudly instead of silently disabling a safeguard.</li>
+<li><strong><code>pytest</code> + <code>pytest-cov</code></strong> — TDD throughout; the historical replay is itself a test.</li>
+<li><strong>Telegram Bot API</strong> — chosen over WhatsApp because two-way works over plain long-polling (no public webhook, no message templates, no ToS/ban risk on the user's phone number).</li>
+<li><strong>macOS <code>launchd</code></strong> — keeps the daemon alive during market hours (TWS is local, so the daemon is local too).</li>
+</ul>
+<hr />
+<h2 id="technical-decisions-the-why-behind-the-choices">Technical Decisions (the "why" behind the choices)<a class="headerlink" href="#technical-decisions-the-why-behind-the-choices" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>No LLM in the reflex loop.</strong> Trust requires the core be deterministic and auditable. The LLM adds judgment after a trip, never decides the trip.</li>
+<li><strong>Event-driven monitoring + 3 daily briefings</strong>, not fixed polling. The poll is essentially free (local socket, no tokens), and a brake has to sample <em>faster than the behavior it's braking</em> — checking 3×/day can't catch a spiral that starts and ends between checks. So: react to fills in real time; brief at open+1h / noon / close.</li>
+<li><strong>Confirm-required for every action.</strong> Staged, never automatic. Stop-trading actions (cancel orders, "platform OFF") would be safe to automate, but ib-governor deliberately keeps a tap on everything; position-changing actions (trim/flatten) always need it.</li>
+<li><strong>Fail loud.</strong> If the daemon can't read state, it screams "BRAKE BLIND" — it never treats blindness as all-clear.</li>
+<li><strong>Extend, don't reinvent.</strong> <code>ibkr-cli</code>'s order layer is stock-only, but TWS/<code>ib_async</code> support futures natively — so we add <code>Future</code> builders, not a new API client.</li>
+<li><strong>Deliberate trades through the gate; impulsive churn backstopped by the breaker.</strong> You can't run an LLM before each of dozens of rapid scalps, and that's fine — those are exactly what the breaker exists for.</li>
+</ul>
+<hr />
+<h2 id="lessons-learned">Lessons Learned<a class="headerlink" href="#lessons-learned" title="Permanent link">&para;</a></h2>
+<p>The richest section, and the reason this doc exists.</p>
+<ul>
+<li><strong>Probing the live API caught two design bugs that mocks never would have.</strong> (1) IBKR's account <code>RealizedPnL</code> is cumulative and account-wide — <em>not</em> "today" and <em>not</em> per-asset — so the most important rule (house-money lockout, which needs realized <em>futures</em> P&amp;L <em>today</em>) must derive it from execution fills. A mock would have happily returned a number the real API can't produce. (2) <code>ibkr-cli</code>'s order preview is stock-only — discovered from the source, not at 2am mid-build. <em>Lesson: assumptions about an external system are exactly what unit tests can't catch; hit the real thing early.</em></li>
+<li><strong>"100% coverage" ≠ "boundaries tested."</strong> The rules hit 100% branch coverage while the most bug-prone inputs — the exact thresholds (<code>-1500.00</code> vs <code>-1500.01</code>) — went untested, because a test at <code>-1500.01</code> covers the same branch. For a brake where "fires one trade too early/late" is the failure mode, boundary tests matter more than the coverage number.</li>
+<li><strong>A passing test isn't an honest test.</strong> The historical replay had to be audited for circularity (does it run the <em>real</em> engine?), a doctored config (does it use the <em>shipped</em> defaults?), and faithful inputs. It passed all three — which is what lets the project claim it would genuinely have caught the modeled blow-up.</li>
+<li><strong>The final whole-branch review caught a landmine in the <em>plan</em>, not the code:</strong> the plan's <code>git add -A</code> cleanup step would have committed pytest's <code>.coverage</code> artifact, because it wasn't gitignored. Per-task reviews see their task; only fresh eyes on the whole thing catch that.</li>
+<li><strong>Assert the <em>consequence</em>, not just the firing.</strong> A replay test that proved "the lockout rule tripped" but not "it tripped as HARD with the 48h-lockout action" would let a future regression silently downgrade a hard stop to a soft warning — and that action field is exactly what the comms layer will read.</li>
+<li><strong>The brake's dumbness is a feature.</strong> Every instinct says "make it smart." The opposite is correct: the part you must trust in the heat of a bad day should be the part that can't surprise you.</li>
+</ul>
+<hr />
+<hr />
+<h2 id="plan-2-live-wiring-built-merged">Plan 2 — Live Wiring (built &amp; merged)<a class="headerlink" href="#plan-2-live-wiring-built-merged" title="Permanent link">&para;</a></h2>
+<p><code>src/governor/live/</code> connects the brain to the live account: <code>LiveConfig</code> (connection + tunable runtime), a <strong>pure <code>build_snapshot()</code></strong> that turns live IBKR objects into a <code>StateSnapshot</code> (derivation logic stays unit-testable with fakes), a read-only <code>BrakeConnection</code>, and a <code>BrakeDaemon</code> that recomputes on every futures fill (<code>commissionReportEvent</code>) and on a 3×/day briefing loop. <strong>Read-only and dry-run</strong> — it logs trips, never acts; <code>dry_run=False</code> raises until Plan 3. <code>scripts/pin_contract.py</code> verifies the data contract against the live account (it passed). Run it: <code>python -m governor.live.daemon</code>.</p>
+<h3 id="more-lessons-plan-2">More lessons (Plan 2)<a class="headerlink" href="#more-lessons-plan-2" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Realized P&amp;L isn't on the fill event.</strong> <code>execDetailsEvent</code> fires with <code>realizedPNL</code> still empty; it's populated on the <em>later</em> <code>commissionReportEvent</code>. Key the recompute off the wrong event and the house-money lockout silently reads zeros and never fires. Only reading the <code>ib_async</code> source revealed this.</li>
+<li><strong>A multi-currency account hides a NAV bug.</strong> <code>accountValues()</code> reports <code>NetLiquidation</code> in <em>both</em> USD and any foreign-holding currencies; "last wins" in a dict comprehension could silently pick the wrong one — and since NAV is the denominator for every %-rule, a wrong NAV mis-scales the whole brake. Fixed with a <code>currency == "USD"</code> filter. A bug that exists <em>because</em> the account holds foreign instruments.</li>
+<li><strong>Running the live pin caught a stale constant the tests couldn't.</strong> The MNQ-equivalent reference defaulted to a guessed value; the live pin showed MNQ at its true notional (front-month price × multiplier). A unit test asserting "6 contracts → 6.0 equiv" passes against <em>any</em> reference value — only real market data exposes the staleness. Exactly why you probe the live API.</li>
+<li><strong>A review is to be verified, not obeyed.</strong> A reviewer suggested swapping <code>asyncio.ensure_future</code> for <code>create_task</code> — which would have <em>broken</em> startup, since <code>create_task</code> needs a running loop that doesn't exist yet when the task is scheduled. Checking the suggestion before applying it avoided introducing the bug it claimed to fix.</li>
+</ul>
+<hr />
+<hr />
+<h2 id="plan-3-comms-confirm-gated-actions-built-merged">Plan 3 — Comms &amp; Confirm-Gated Actions (built &amp; merged)<a class="headerlink" href="#plan-3-comms-confirm-gated-actions-built-merged" title="Permanent link">&para;</a></h2>
+<p>The brake now speaks and — once armed — acts. <code>src/governor/comms/</code> (async Telegram client + macOS notifier) and <code>src/governor/actions/</code> (<code>ConfirmTokenGate</code>, <code>LockoutStore</code>, <code>ActionExecutor</code>) plug into a rewritten <code>BrakeDaemon.handle()</code>: a trip → loud alert (Telegram + macOS) → if it carries an action, a staged confirm request → you reply <code>CONFIRM &lt;token&gt;</code> → the action runs through the chokepoint. Actions: cancel-all-orders, 48h/EOD lockout (cancel + persistent flag + a <em>violation witness</em> that calls you out if you trade during your own lockout), and trim-futures. Per your choice, "platform OFF" = cancel + alert, no TWS-kill.</p>
+<p><strong>The one safety invariant, restated:</strong> exactly one method (<code>ActionExecutor._guarded</code>) can touch the account, and it returns early — logging intent — when <code>dry_run</code> is set. A whole-repo grep confirms no write call exists anywhere else. The path from a trip to execution is single and gated by a single-use, expiring, chat-authed token.</p>
+<h3 id="more-lessons-plan-3">More lessons (Plan 3)<a class="headerlink" href="#more-lessons-plan-3" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>A flag you assume is a guardrail may not be one.</strong> <code>readonly=True</code> reads like a safety interlock — it isn't, in <code>ib_async</code> (it only skips a startup fetch; <code>placeOrder</code> sends regardless). The real interlock had to be <em>built</em>: one dry-run-gated chokepoint in our code, plus TWS's server-side "Read-Only API" setting as a backstop. Verify your guardrails are load-bearing before you lean on them.</li>
+<li><strong>Test the seam, not just the parts.</strong> Every safety unit (token gate, executor, dry-run) was tested — but the composition (<code>handle → confirm → execute</code>) was only safe-by-inspection until the final review caught it. For money-touching code, the place the parts compose is exactly what must be pinned by a test.</li>
+<li><strong>Bugs hide in the malformed-input seam.</strong> The token reply split on literal spaces (a tab would've silently dropped a valid confirm); the lockout file crashed on a missing key. Both passed the happy path; both were caught by asking "what if the input is weird?"</li>
+</ul>
+<h3 id="arming-checklist-before-ever-setting-livedry_run-false">⚠️ Arming checklist (before ever setting <code>live.dry_run: false</code>)<a class="headerlink" href="#arming-checklist-before-ever-setting-livedry_run-false" title="Permanent link">&para;</a></h3>
+<p>The brake ships <strong>safe</strong>: <code>dry_run: true</code> (confirmed actions are logged, never executed). To arm it on the live account, in order:
+1. ✅ <strong>Telegram — configured &amp; validated</strong> (your bot, e.g. @your_bot; <code>TELEGRAM_BOT_TOKEN</code> + <code>TELEGRAM_CHAT_ID</code> in <code>.env</code>; getMe + a test message confirmed). Still worth one <code>python -m governor.live.daemon</code> run to watch the live alert → <code>CONFIRM &lt;token&gt;</code> → "DRY-RUN would execute…" loop end-to-end.
+2. ✅ <strong>Trim idempotency — DONE.</strong> <code>dedup_key</code> gives one-outstanding-token-per-action (a re-trip invalidates the prior token), and a post-execute cooldown (<code>live.action_cooldown_seconds</code>, default 300s, arms on <em>success</em> only) suppresses re-staging a just-executed action — both over-trim vectors closed.
+3. Turn TWS's <strong>"Read-Only API" setting OFF</strong> (the server-side backstop must lift for actions to go through), set <code>live.readonly: false</code> (the second app-level lock) — and only then set <code>live.dry_run: false</code>.
+4. ✅ <strong><code>mnq_notional_usd</code> — DONE (dynamic fetch).</strong> The overnight-contracts count now normalizes against the LIVE MNQ notional (front-month price × multiplier), fail-soft to the config value if TWS data is unavailable — no stale constant to keep re-tuning.</p>
+<hr />
+<h2 id="plan-4-equities-portfolio-rules-the-rule-catalog-built-merged">Plan 4 — Equities &amp; Portfolio Rules + the Rule Catalog (built &amp; merged)<a class="headerlink" href="#plan-4-equities-portfolio-rules-the-rule-catalog-built-merged" title="Permanent link">&para;</a></h2>
+<p>The breaker grew its other two asset classes. <strong>Equities:</strong> single-name concentration (&gt;15% NAV), sector concentration (&gt;25%), re-trade churn (same name &gt;2×/week), and add-into-drawdown (averaging down a loser while the book is underwater). <strong>Portfolio (cross-asset):</strong> margin cushion, gross leverage, drawdown moratorium. Sector labels come from <code>reqContractDetails().industry</code> (no Reuters subscription needed); an unknown sector buckets to <code>"unknown"</code> and still surfaces, rather than silently passing.</p>
+<p>This is also when the rules earned a <strong>catalog.</strong> With 13 rules scattered as pure functions across three modules, nobody could see the whole safeguard surface at a glance, and a hand-written summary would rot the first time someone added a rule. So <code>src/governor/rules/catalog.py</code> is <em>data</em> — one <code>RuleSpec</code> per rule (id, asset class, severity, config key, one-liner) — <code>docs/RULES.md</code> is generated from it, and a test asserts the catalog covers <em>exactly</em> the engine's registries.</p>
+<h3 id="lesson-plan-4-catalog">Lesson (Plan 4 / catalog)<a class="headerlink" href="#lesson-plan-4-catalog" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Bind the doc to the code or it rots.</strong> The catalog isn't a parallel copy of the rules; it's a projection the engine is checked against, so drift becomes a failing test rather than a silent lie. The naming convention (<code>rule_id == "&lt;section&gt;.&lt;function&gt;"</code>) was already there — the catalog just made it <em>enforced</em> instead of merely <em>observed</em>.</li>
+</ul>
+<hr />
+<h2 id="plan-5-the-pre-trade-gate-built-merged">Plan 5 — The Pre-Trade Gate (built &amp; merged)<a class="headerlink" href="#plan-5-the-pre-trade-gate-built-merged" title="Permanent link">&para;</a></h2>
+<p>The proactive half — and the realization of the original goal: <em>before any deliberate trade, analyze it against the rules and past learnings.</em> For a deliberate order the flow is:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>intent (&quot;buy 50 ORCL @145&quot;)
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>  → build the order   → ib.whatIfOrder (margin preview, READ-ONLY)
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>  → hypothetical post-trade snapshot   → run the EXISTING rule engine on it
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>  → + per-trade sizing (≤1.5% NAV) + active-lockout honor
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>  → GO / CAUTION / BLOCK   + a single-use staged token
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>  → you confirm   → submit through the one guarded write chokepoint
+</code></pre></div>
+<p>It's split along the trust boundary. The <strong>deterministic gate</strong> (<code>src/governor/gate/</code>) answers the <em>checkable</em> questions — margin, sizing, would-a-rule-trip, is-there-a-lockout — and emits them as JSON. The <strong>LLM analyst skills</strong> (<code>/pre-trade</code> → <code>pre-trade-equities</code> / <code>pre-trade-futures</code>) answer the <em>judgment</em> question: given those facts <em>and</em> (optionally) the trader's notes about this name, is this a GO? The LLM never computes a number it could get wrong; it reasons over numbers the deterministic core already nailed down. Order types: market / limit / stop / stop-limit.</p>
+<h3 id="lessons-plan-5-the-richest-yet">Lessons (Plan 5 — the richest yet)<a class="headerlink" href="#lessons-plan-5-the-richest-yet" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>A test can enshrine a bug.</strong> <code>test_corrupt_file_returns_none</code> looked like honest coverage; it actually <em>locked in</em> a fail-<strong>open</strong> — an unreadable lockout file read as "no lockout," i.e. the brake waving you through. Tests encode intent, and when the intent is subtly wrong, green gives false confidence. The fix inverted the test: a present-but-unreadable lockout now fails <strong>closed</strong> (assume locked + scream). For a safety interlock, "fail open vs fail closed" is <em>the</em> question — it must over-stop, never wave you through on uncertainty.</li>
+<li><strong>"Faithful refactor" and "safe behavior" are different audits.</strong> Two review agents read the same line and disagreed — one called it "fail-safe," the other "fail-open." Both were right: the refactor <em>was</em> faithful to the old behavior, and the old behavior <em>was</em> unsafe. A clean refactor can faithfully preserve a latent hazard; you need the correctness lens <em>and</em> the safety lens.</li>
+<li><strong>Enforce the confirm across process boundaries.</strong> A skill runs discrete CLI commands, so the "no submit without analysis + confirm" invariant can't live in memory. Hence two verbs: <code>analyze</code> mints and <em>persists</em> a single-use, expiring token; <code>submit</code> consumes it. Even with an LLM driving, the deterministic gate stays the sole path to the exchange — there's no way to reach <code>placeOrder</code> without a fresh analysis and your tap.</li>
+<li><strong>Reuse the rules; don't grow a second source of truth.</strong> Concentration is already a <em>rule</em>, and the gate runs the real engine on a <em>hypothetical post-trade snapshot</em> — so it gets concentration/leverage/drawdown checks for free. The only genuinely gate-only check is per-trade <strong>sizing</strong> (a property of the <em>order</em>, not the resulting <em>state</em> — no rule expresses it). A parallel concentration function would have been a second truth that could disagree with the first.</li>
+<li><strong>Two locks, both default-closed.</strong> Arming needs <em>both</em> <code>dry_run: false</code> (the app gate) <em>and</em> <code>readonly: false</code> (the IBKR connection itself rejects writes) — defense in depth. But it bites: <code>placeOrder</code> is fire-and-forget, so an armed-but-still-readonly submit would report "placed" while TWS silently rejects it. The gate now warns on that exact misconfig.</li>
+<li><strong>Real captured fixtures catch what mocks can't.</strong> <code>scripts/capture_fixtures.py</code> freezes real IBKR response shapes (account-scrubbed) into replayable fixtures — guarding against e.g. the IBKR "unset" sentinel (<code>1.79e308</code>) leaking into a realized-P&amp;L sum, a shape a hand-written mock would never include.</li>
+<li><strong>A good implementer doesn't stop at "tests pass."</strong> Several implementer subagents self-reviewed past their first "done," found their own nits (an unguarded <code>IndexError</code>, missing boundary tests), and shipped the fix — which the controller then has to reconcile (a late self-review commit can race a review already dispatched against the earlier one).</li>
+</ul>
+<hr />
+<p><em>ib-governor is feature-complete: a deterministic core (rules + engine + catalog), a live daemon (event-driven + briefings + confirm-gated actions), a pre-trade gate (deterministic facts + optional notes-grounded LLM judgment), and a setup read that adds entry-quality awareness to the gate — all dry-run-safe until you run the Arming checklist above. Known follow-up: <code>cli.build_current_snapshot</code> and <code>daemon.build</code> are a justified read-only near-duplicate worth DRYing into one shared <code>build_snapshot_readonly</code> helper.</em></p>
+<hr />
+<h2 id="phase-6-setup-read-the-gate-learns-to-look-at-the-chart">Phase 6 — Setup Read: The Gate Learns to Look at the Chart<a class="headerlink" href="#phase-6-setup-read-the-gate-learns-to-look-at-the-chart" title="Permanent link">&para;</a></h2>
+<h3 id="the-gap-the-gate-had">The gap the gate had<a class="headerlink" href="#the-gap-the-gate-had" title="Permanent link">&para;</a></h3>
+<p>After Plan 5 the pre-trade gate was nearly complete — it knew whether you could <em>afford</em> a trade (margin, sizing, concentration, rules) but not whether the entry was any <em>good</em>. You could pass through a trade that was inside every risk limit while buying extended into a resistance high, or entering counter-trend in a trending market. The gate was risk-complete but setup-blind.</p>
+<p>The fix is the setup read: one more piece of data the gate gathers before it hands you the verdict, quietly, over the same connection it already has open.</p>
+<h3 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h3>
+<p>The gate calls <code>reqHistoricalData</code> on the IBKR socket it's already connected to — one request, fail-soft (if the bars don't come back, the setup is marked <code>available: False</code> and the gate proceeds without it; it never blocks on missing data). The bars go through a small stack of pure Python:</p>
+<ul>
+<li>
+<p><strong>Equities:</strong> Minervini's 7-criterion Stage-2 checklist (MA stack, MA200 slope, 52-week position, range ratio), plus VCP contraction detection (pivot level, distance-from-pivot band, last contraction grade, volume dry-up). The result is <code>confirmed</code> (6–7/7), <code>candidate</code> (4–5), or <code>none</code> (≤3), plus a VCP band: <code>actionable</code>, <code>extended</code>, or <code>too_late</code>.</p>
+</li>
+<li>
+<p><strong>Futures:</strong> a four-factor structural read on the continuous contract — trend alignment (price vs 20/50/200 MAs), volatility regime (ATR percentile over the prior 100 bars), location/extension (distance from the 20-day high/low range), and momentum (RSI/ROC). Counter-trend, chasing, or elevated-vol setups get flagged.</p>
+</li>
+</ul>
+<p>Both paths land in <code>GateFacts.setup</code> (a <code>SetupAssessment</code> frozen dataclass). <code>decide()</code> reads it: if the setup is poor, it escalates the verdict to <strong>CAUTION</strong> — but never to BLOCK, and never downgrades a real BLOCK that a rule or lockout already earned. The setup is a quality signal, not a veto.</p>
+<h3 id="where-the-rendering-lives">Where the rendering lives<a class="headerlink" href="#where-the-rendering-lives" title="Permanent link">&para;</a></h3>
+<p>There's a deliberate split at the trust boundary. The gate's Python renders the <em>factual</em> panels — 📋 ORDER, 💰 RISK &amp; SIZING, 📈 SETUP — as a pre-formatted string (<code>panels</code>) in the JSON response. The analyst skill owns the <em>judgment</em> layer: the banner (final verdict after vault escalation), the 🧭 VERDICT paragraph, the 📓 VAULT section, and the confirm line. Python renders what it can prove from the numbers; the LLM reasons over those numbers and the trader's own notes.</p>
+<p>The reason for the split: the fact panels are computed from real IBKR bars and are the same no matter who reads them. The verdict can change — your vault might contain a note saying "this name is an exception" or "I've chased this setup twice and lost both times." That's the LLM's job, not the gate's.</p>
+<h3 id="lessons-from-this-phase">Lessons from this phase<a class="headerlink" href="#lessons-from-this-phase" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Fail-soft is the only option for a brake.</strong> A setup that can't be assessed (TWS gave no bars, symbol has too little history) must <em>not</em> block the trade — a risk gate that refuses to let you close a position because it can't read a chart would be a hazard, not a help. The rule: missing data produces an <code>available: False</code> assessment and the rest of the gate runs as if setup didn't exist.</li>
+<li><strong>The ATR percentile edge case is worth documenting.</strong> In a dead-flat regime where every bar has the same range, the current bar's ATR ranks at the 100th percentile of itself — the percentile reads "elevated" even though there's no actual volatility expansion. It's fail-safe (CAUTION, never BLOCK), but it will fire in quiet markets and the operator should know why. See the HANDBOOK for the tuning knob.</li>
+<li><strong>The MA200-rising criterion needs ~221 bars, not 200.</strong> "MA200 rising" means the 200-bar MA itself has a positive slope over a 20-bar window — so you need 200 bars for the MA <em>plus</em> 20 more to compare the slope endpoint to its starting point. With the default <code>history_duration: "1 Y"</code> (~252 bars) you're fine; only names with exactly 200–220 bars of history cap at 6/7 on this criterion. It's production-moot but worth knowing if you ever see an unexpected <code>candidate</code> on a name that looks clean.</li>
+</ul>
+<h2 id="phase-7-order-from-telegram-built-merged">Phase 7 — Order from Telegram (built &amp; merged)<a class="headerlink" href="#phase-7-order-from-telegram-built-merged" title="Permanent link">&para;</a></h2>
+<p>The daemon already polled Telegram (for <code>CONFIRM &lt;token&gt;</code>) and already owned the
+write chokepoint. Phase 7 lets you <em>start</em> an order from the chat — including in
+plain language — without opening a terminal.</p>
+<h3 id="the-shape-a-thin-bridge-one-reused-brain">The shape: a thin bridge, one reused brain<a class="headerlink" href="#the-shape-a-thin-bridge-one-reused-brain" title="Permanent link">&para;</a></h3>
+<p>The temptation was to embed a small LLM in the daemon to parse messages. We
+didn't. The project's whole architecture is "deterministic core, intelligence on
+top via skills" — so the natural-language understanding stays in the skill we
+already have. <code>daemon.handle_telegram_text</code> routes each inbound message:</p>
+<ol>
+<li><strong>circuit-breaker action confirm</strong> — an in-memory <code>ConfirmTokenGate</code> token
+   (unchanged Plan-3 path),</li>
+<li><strong>order confirm</strong> — <code>CONFIRM &lt;token&gt;</code> → <code>python -m governor.gate submit</code>
+   subprocess (the single guarded write path),</li>
+<li><strong>anything else</strong> — a headless <code>claude -p</code> agent (<code>comms/agent_runner.py</code>)
+   with the <code>/pre-trade-*</code> skill, confined to the gate's <code>analyze</code> subcommand +
+   <code>Read</code>. The agent interprets, analyzes, stages, and replies a token.</li>
+</ol>
+<p>So the daemon stays dumb about <em>understanding</em> and <em>placing</em>: it relays to the
+agent and executes confirmed tokens through the gate CLI. No new Python
+dependency, no embedded model, no new secret — the agent reuses the existing
+Claude Code login, exactly like the daily-summary launchd job.</p>
+<h3 id="the-block-guarantee-is-in-code-not-in-trust">The BLOCK guarantee is in code, not in trust<a class="headerlink" href="#the-block-guarantee-is-in-code-not-in-trust" title="Permanent link">&para;</a></h3>
+<p><code>gate analyze</code> stages even a BLOCK (so a deliberate CLI <code>--override</code> is possible).
+If the only thing stopping a BLOCKed phone order were the agent choosing not to
+print the token, that'd be trust, not a guarantee. So the staged record now
+carries the <strong>verdict</strong> (<code>StagedOrderStore</code>), and <code>gate submit</code> <strong>refuses</strong> a
+BLOCK-staged order unless <code>--override</code> is passed — which the daemon's confirm
+path never does. The phone cannot punch through the brake even if a token leaks.</p>
+<h3 id="lessons">Lessons<a class="headerlink" href="#lessons" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>--allowed-tools</code> is additive, not a sandbox.</strong> The first cut confined the
+  agent with <code>--allowed-tools "...analyze..." "Read"</code> and called it "structurally
+  unable to place an order." It wasn't: the spawned CLI also loads the operator's
+  global <code>~/.claude/settings.json</code>, which allows <code>Bash(python *)</code> in auto mode —
+  so the agent could have run <code>gate submit --override</code>. The real confinement is
+  <strong>deny rules</strong> (deny wins over any allow), <strong>strict MCP isolation</strong>
+  (<code>--strict-mcp-config --mcp-config '{"mcpServers":{}}'</code> so the ibkr-tws
+  <code>place_order</code> MCP can't load), and <strong><code>--permission-mode default</code></strong> (not the
+  global <code>auto</code>). A residual remains — the global <code>Bash(python *)</code> allow still
+  permits arbitrary python — closed only by tightening that global allow-list.
+  Lesson: a money-path sandbox must be verified against the <em>effective</em> merged
+  permission set, not the flags you passed.</li>
+<li><strong>Reuse the strong brain before adding a weak one.</strong> A Haiku-in-the-daemon would
+  have duplicated the pre-trade skill's intelligence and added an online
+  dependency + secret to the safety-critical process. Delegating to <code>claude -p</code>
+  kept one brain and zero new deps.</li>
+<li><strong>Move the safety invariant to where it's deterministic.</strong> "The phone can't
+  override BLOCK" became real only once <code>submit</code> enforced it from persisted state
+  — not from the agent's good behaviour.</li>
+<li><strong>A subprocess seam keeps the async daemon testable.</strong> <code>run_agent</code> and
+  <code>_gate_submit</code> are module-level seams; the routing tests inject fakes and never
+  spawn <code>claude</code> or a gate process.</li>
+</ul>
+<h2 id="phase-8-the-chat-becomes-a-cockpit-qa-ux">Phase 8 — the chat becomes a cockpit (Q&amp;A + UX)<a class="headerlink" href="#phase-8-the-chat-becomes-a-cockpit-qa-ux" title="Permanent link">&para;</a></h2>
+<p>Phase 7 made the chat <em>place</em> orders. Phase 8 makes it <em>answer</em> — and cleans up
+the interaction surface — without weakening the brake.</p>
+<p><strong>Three tiers, fastest first.</strong> <code>handle_telegram_text</code> now splits a non-confirm
+message with <code>classify_message</code> (ORDER vs ASK — a cheap heuristic; a misread is
+harmless because both lanes are read-only):</p>
+<ol>
+<li><strong>Deterministic fast-path</strong> (<code>comms/ask.py::quick_answer</code>, sub-second). The
+   daemon already holds a live <code>ib</code> (client_id 4) with account values, portfolio
+   and fills streamed by <code>ib_async</code>. Leverage / cushion / P&amp;L / today / positions
+   are answered straight from <code>live.daily.collect_account_view</code> — the
+   connection-cheap subset of the daily collector (everything <em>except</em> the slow
+   market backdrop). No subprocess, no new socket. Works even with the order
+   agent disabled.</li>
+<li><strong>Slash shortcuts</strong> (<code>setMyCommands</code>): <code>/leverage /pnl /positions /today
+   /cushion</code> map to the same quick answers as one-tap buttons.</li>
+<li><strong>The ask agent</strong> (<code>run_ask_agent</code>, ~a minute) for open-ended questions —
+   "analyze my book", NL technicals, news. A second <code>claude -p</code> lane with the
+   web tools added (<code>WebSearch</code>/<code>WebFetch</code>) and a <strong>read-only</strong> prompt; it can run
+   <code>governor.live.daily --json</code>, the new read-only <code>governor.technicals</code> CLI (a
+   setup read that <strong>stages nothing</strong>, unlike <code>gate analyze</code>), and read the
+   research vault. Same deny rules + dry-run sandbox as the order agent.</li>
+</ol>
+<p><strong>Formatting + confirm UX.</strong> <code>comms/format.py</code> gives a Telegram-HTML house style,
+threaded through the daemon's messages; <code>TelegramClient.send</code> falls back to plain
+text on a markup error so a formatting bug can never drop a brake alert. Confirm
+buttons now ride on <em>every</em> confirmable thing (orders <strong>and</strong> circuit-breaker
+actions, via namespaced callback data <code>confirm:</code> / <code>action:</code> / <code>cancel:</code>), and a
+tap <strong>edits the card in place</strong> (<code>editMessageText</code>) into its outcome instead of
+spawning a second message.</p>
+<h3 id="lessons_1">Lessons<a class="headerlink" href="#lessons_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>The warm connection is the feature.</strong> The instant-answer tier exists only
+  because the always-on daemon already holds the account streamed; the trick was
+  carving the <em>cheap</em> read (<code>collect_account_view</code>) away from the slow backdrop,
+  not adding a new data path.</li>
+<li><strong>A read-only lane still earns its own dedicated CLI.</strong> <code>gate analyze</code> stages a
+  token as a side effect — wrong for a mere question — so NL technicals get
+  <code>governor.technicals</code>, which qualifies + fetches + assesses and writes nothing.</li>
+<li><strong>Two read-only lanes make classification low-stakes.</strong> Because neither the
+  order lane (stages only) nor the ask lane (reads only) can move money, the
+  ORDER/ASK split can stay a tunable heuristic instead of a safety gate.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.top", "navigation.instant", "navigation.tracking", "search.suggest", "search.highlight", "content.code.copy", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

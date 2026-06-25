@@ -1,0 +1,1063 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A behavioral circuit-breaker + pre-trade gate for Interactive Brokers (IBKR) trading discipline">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Telegram Q&A + UX overhaul — design & plan - ib-governor</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="red" data-md-color-accent="red">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#telegram-qa-ux-overhaul-design-plan" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="ib-governor" class="md-header__button md-logo" aria-label="ib-governor" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m20.84 22.73-1.67-1.67C17.7 22.85 15.5 24 13 24c-3.26 0-6.19-2-7.4-5l-3.03-7.63a1 1 0 0 1 1.24-1.32l.79.26c.56.19 1.02.61 1.24 1.16L7.25 15H8V9.89L1.11 3l1.28-1.27 19.72 19.73zM14 1.25a1.25 1.25 0 0 0-2.5 0V8.3l2.5 2.5zM21 16V5.75a1.25 1.25 0 0 0-2.5 0V12h-1V2.75a1.25 1.25 0 0 0-2.5 0v9.05l5.83 5.83c.11-.52.17-1.07.17-1.63M10.5 3.25a1.25 1.25 0 0 0-2.5 0V4.8l2.5 2.5z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            ib-governor
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Telegram Q&amp;A + UX overhaul — design &amp; plan
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="red" data-md-color-accent="red"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="red" data-md-color-accent="red"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/Mikerpen22/ib-governor" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Mikerpen22/ib-governor
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="ib-governor" class="md-nav__button md-logo" aria-label="ib-governor" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m20.84 22.73-1.67-1.67C17.7 22.85 15.5 24 13 24c-3.26 0-6.19-2-7.4-5l-3.03-7.63a1 1 0 0 1 1.24-1.32l.79.26c.56.19 1.02.61 1.24 1.16L7.25 15H8V9.89L1.11 3l1.28-1.27 19.72 19.73zM14 1.25a1.25 1.25 0 0 0-2.5 0V8.3l2.5 2.5zM21 16V5.75a1.25 1.25 0 0 0-2.5 0V12h-1V2.75a1.25 1.25 0 0 0-2.5 0v9.05l5.83 5.83c.11-.52.17-1.07.17-1.63M10.5 3.25a1.25 1.25 0 0 0-2.5 0V4.8l2.5 2.5z"/></svg>
+
+    </a>
+    ib-governor
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Mikerpen22/ib-governor" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Mikerpen22/ib-governor
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../HANDBOOK/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operator's Handbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../RULES/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rule Catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../ORDER_TYPES/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Order Types
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../FORCLAUDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture & Lessons
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../SECURITY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Domain model & config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/rules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rules & engine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/gate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pre-trade gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/live/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Live daemon & snapshot
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/actions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Actions & state
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#goal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Goal
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#non-negotiable-safety-model-unchanged" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Non-negotiable safety model (unchanged)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-already-exists-reused-not-rebuilt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What already exists (reused, not rebuilt)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="telegram-qa-ux-overhaul-design-plan">Telegram Q&amp;A + UX overhaul — design &amp; plan<a class="headerlink" href="#telegram-qa-ux-overhaul-design-plan" title="Permanent link">&para;</a></h1>
+<p><strong>Date:</strong> 2026-06-23
+<strong>Status:</strong> proposed (awaiting operator review)
+<strong>Branch:</strong> <code>claude/eager-hawking-1esja9</code></p>
+<h2 id="goal">Goal<a class="headerlink" href="#goal" title="Permanent link">&para;</a></h2>
+<p>Make the Telegram bot a real two-way cockpit, in three moves:</p>
+<ol>
+<li><strong>Ask anything (read-only):</strong> positions, leverage, today's trades, "analyze
+   my book", a natural-language technical read on a symbol, news — not just
+   order placement.</li>
+<li><strong>Cleaner formatting:</strong> Telegram-HTML house style (headers, bold, italic,
+   underline, monospace) with no decorative separator lines.</li>
+<li><strong>Frictionless confirm:</strong> tap-to-confirm buttons on <em>every</em> confirmable
+   thing (orders <strong>and</strong> circuit-breaker actions), and the card edits itself in
+   place on tap instead of dropping a second message.</li>
+</ol>
+<h2 id="non-negotiable-safety-model-unchanged">Non-negotiable safety model (unchanged)<a class="headerlink" href="#non-negotiable-safety-model-unchanged" title="Permanent link">&para;</a></h2>
+<p>Nothing here weakens the brake. Restating the invariants every change must hold:</p>
+<ul>
+<li><strong>One write chokepoint.</strong> Orders are placed only by <code>gate submit</code> →
+  <code>ActionExecutor.place_order(s)</code> → <code>_guarded</code>. The new ask lane is <strong>read-only</strong>
+  and never imports a write path.</li>
+<li><strong>Two default-closed locks.</strong> <code>config/rules.yaml</code> keeps <code>dry_run: true</code> +
+  <code>readonly: true</code>. None of this work flips a lock.</li>
+<li><strong>Nothing auto-fires.</strong> Every order/action still waits for an explicit tap or
+  typed <code>CONFIRM</code>. Buttons are a nicer <em>transport</em> for the same token; the token
+  still gates <code>gate submit</code>.</li>
+<li><strong>Comms can never crash the brake.</strong> Every new send/edit path is best-effort
+  and falls back; an HTML parse error or a flaky agent degrades, never throws
+  into the daemon loop.</li>
+</ul>
+<h2 id="what-already-exists-reused-not-rebuilt">What already exists (reused, not rebuilt)<a class="headerlink" href="#what-already-exists-reused-not-rebuilt" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>comms/telegram.py</code> — hand-rolled <code>httpx</code> client: <code>send</code> / <code>poll</code> /
+  <code>answer_callback</code>. ~65 lines, no third-party Telegram lib.</li>
+<li><code>comms/agent_runner.py</code> — a headless <code>claude -p</code> bridge with a read-only
+  sandbox (<code>GOVERNOR_AGENT_SANDBOX=1</code> forces dry-run). Today its system prompt
+  is hard-wired to <em>order placement only</em>.</li>
+<li><code>live/daily.py::collect_day_data()</code> — already returns nav, <code>gross_leverage</code>,
+  <code>margin_cushion</code>, today's <code>fills</code>, <code>positions</code>, unrealized P&amp;L, index/VIX
+  backdrop. This is the data source for the ask lane.</li>
+<li><code>_confirm_keyboard()</code> + <code>handle_callback()</code> — inline ✅/✖️ buttons, but only on
+  the NL-order path (callback data <code>confirm:</code> / <code>cancel:</code>).</li>
+<li><code>technicals/assess.py</code> — pure setup assessment; needs a thin read-only CLI so
+  the ask lane can request a technical read <em>without</em> staging an order.</li>
+</ul>
+<hr />
+<h1 id="workstream-a-formatting-telegram-html-house-style">Workstream A — formatting (Telegram-HTML house style)<a class="headerlink" href="#workstream-a-formatting-telegram-html-house-style" title="Permanent link">&para;</a></h1>
+<h3 id="problem">Problem<a class="headerlink" href="#problem" title="Permanent link">&para;</a></h3>
+<p><code>send.py --html</code> already supports <code>parse_mode=HTML</code>, and the daily-summary skill
+uses it well. But the <strong>daemon's own messages</strong> (<code>alert()</code>, <code>_reply()</code>,
+<code>_HELP_TEXT</code>, staged-action lines, submit replies) are sent as <strong>plain text</strong> —
+no <code>parse_mode</code>. And <code>gate/render.py</code> panels lean on leading-space "indentation"
+that Telegram ignores unless wrapped in <code>&lt;pre&gt;</code>, so they render ragged on a
+phone.</p>
+<h3 id="design">Design<a class="headerlink" href="#design" title="Permanent link">&para;</a></h3>
+<p>New pure module <code>src/governor/comms/format.py</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">esc</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span> <span class="o">...</span>                 <span class="c1"># HTML-escape &amp;, &lt;, &gt; (Telegram HTML)</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="k">def</span><span class="w"> </span><span class="nf">b</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span> <span class="o">...</span>                   <span class="c1"># &lt;b&gt;…&lt;/b&gt;  (escapes inside)</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="k">def</span><span class="w"> </span><span class="nf">i</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span> <span class="o">...</span>                   <span class="c1"># &lt;i&gt;…&lt;/i&gt;</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="k">def</span><span class="w"> </span><span class="nf">u</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span> <span class="o">...</span>                   <span class="c1"># &lt;u&gt;…&lt;/u&gt;</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="k">def</span><span class="w"> </span><span class="nf">code</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span> <span class="o">...</span>                <span class="c1"># &lt;code&gt;…&lt;/code&gt;</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="k">def</span><span class="w"> </span><span class="nf">header</span><span class="p">(</span><span class="n">emoji</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">title</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>  <span class="c1"># e.g. &quot;💰 &lt;b&gt;Book&lt;/b&gt;&quot;</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="k">def</span><span class="w"> </span><span class="nf">section</span><span class="p">(</span><span class="n">head</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">lines</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>  <span class="c1"># header + blank-line-spaced bullets</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="k">def</span><span class="w"> </span><span class="nf">strip_tags</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span> <span class="o">...</span>          <span class="c1"># for the macOS banner + plain fallback</span>
+</code></pre></div>
+<p>House style (documented in the module + HANDBOOK): bold section headers with an
+emoji anchor, blank line between sections, <strong>no</strong> <code>─────</code> separator lines,
+italic for asides, <code>&lt;code&gt;</code> for tokens/symbols/numbers a user might copy.</p>
+<p><strong>Robust send (the load-bearing safety bit).</strong> <code>TelegramClient.send</code> gains an
+internal fallback: if a <code>parse_mode="HTML"</code> post fails (Telegram 400 on bad
+markup), retry once as <strong>plain text with tags stripped</strong>, so a formatting bug
+can never silently swallow a brake alert. Logged as a warning.</p>
+<p>Thread <code>parse_mode="HTML"</code> through <code>alert()</code> and <code>_reply()</code>. Convert the daemon's
+ad-hoc message strings to small <strong>pure builder functions</strong> (testable without a
+network), e.g. <code>help_message()</code>, <code>staged_action_message(action, mode, ttl)</code>,
+<code>rule_alert(trip)</code>, and HTML-wrap <code>_REASON_REPLIES</code> / <code>_friendly_submit_reply</code>.
+All dynamic content (symbols, messages, numbers) goes through <code>esc()</code>.</p>
+<h3 id="files">Files<a class="headerlink" href="#files" title="Permanent link">&para;</a></h3>
+<ul>
+<li>NEW <code>src/governor/comms/format.py</code></li>
+<li>EDIT <code>src/governor/comms/telegram.py</code> — HTML-with-plain-fallback in <code>send</code></li>
+<li>EDIT <code>src/governor/live/daemon.py</code> — <code>parse_mode="HTML"</code>, builder functions</li>
+<li>EDIT <code>src/governor/comms/send.py</code> — reuse <code>strip_tags</code> for the banner</li>
+<li>EDIT <code>docs/HANDBOOK.md</code> — the house-style note</li>
+</ul>
+<h3 id="tests">Tests<a class="headerlink" href="#tests" title="Permanent link">&para;</a></h3>
+<ul>
+<li>NEW <code>tests/comms/test_format.py</code> — escaping (incl. <code>&amp;&lt;&gt;</code> in symbols/messages),
+  builders, <code>strip_tags</code>.</li>
+<li>EDIT <code>tests/comms/test_telegram.py</code> — HTML send + the plain-text fallback on a
+  simulated 400.</li>
+<li>EDIT daemon message tests — assert messages are HTML and well-formed.</li>
+</ul>
+<hr />
+<h1 id="workstream-b-confirm-ux-buttons-everywhere-in-place-edits">Workstream B — confirm UX (buttons everywhere + in-place edits)<a class="headerlink" href="#workstream-b-confirm-ux-buttons-everywhere-in-place-edits" title="Permanent link">&para;</a></h1>
+<h3 id="problem_1">Problem<a class="headerlink" href="#problem_1" title="Permanent link">&para;</a></h3>
+<p>Buttons exist for NL orders, but <strong>circuit-breaker actions</strong> (lockout / trim /
+platform-off) still go out as plain <code>Reply CONFIRM &lt;token&gt;</code> text via <code>alert()</code> —
+no buttons (this is the "copy the token and type confirm" pain). And after a tap
+the bot sends a <em>new</em> message instead of editing the original card.</p>
+<h3 id="design_1">Design<a class="headerlink" href="#design_1" title="Permanent link">&para;</a></h3>
+<p><strong>Namespaced callback data (back-compat).</strong> Keep <code>confirm:&lt;token&gt;</code> = order (no
+test churn) and add <code>action:&lt;token&gt;</code> for circuit-breaker actions; <code>cancel:&lt;token&gt;</code>
+unchanged. <code>handle_callback</code> dispatches:</p>
+<ul>
+<li><code>confirm:</code> → <code>_submit_staged_order</code> (gate submit chokepoint) — unchanged</li>
+<li><code>action:</code>  → <code>on_confirm</code>-style execute via the in-memory <code>ConfirmTokenGate</code></li>
+<li><code>cancel:</code>  → <code>_cancel_staged_order</code> (orders) / drop the in-memory token (actions)</li>
+</ul>
+<p><code>_confirm_keyboard(token, kind="order")</code> builds the right prefix + button labels
+("✅ Place order" vs "✅ Run lockout / Trim now").</p>
+<p><strong>Buttons on circuit-breaker actions.</strong> In <code>handle()</code>, the staged-action
+announcement routes through a button-bearing send (best-effort, scheduled like
+<code>alert</code>) carrying <code>action:&lt;token&gt;</code>, instead of a plain <code>CONFIRM &lt;token&gt;</code> line.
+Typed <code>CONFIRM &lt;token&gt;</code> still works for both paths.</p>
+<p><strong>In-place card edits (<code>editMessageText</code>).</strong> Add
+<code>TelegramClient.edit_message(message_id, text, parse_mode, reply_markup=None)</code>
+and have <code>poll()</code> return the callback's <code>message_id</code> + <code>chat_id</code> (already in the
+<code>callback_query.message</code> payload). On a tap, edit the original card to the
+outcome ("✅ Placed — BUY 10 ORCL", "✖️ Cancelled", "🛑 Blocked") and drop the
+keyboard — one clean card, no message spam. Typed-CONFIRM (no card id) keeps
+sending a fresh reply. <code>send()</code> returns the sent <code>message_id</code> so non-callback
+flows can edit later if needed.</p>
+<h3 id="files_1">Files<a class="headerlink" href="#files_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>EDIT <code>src/governor/comms/telegram.py</code> — <code>edit_message</code>; <code>poll</code> returns
+  <code>message_id</code>/<code>chat_id</code>; <code>send</code> returns <code>message_id</code></li>
+<li>EDIT <code>src/governor/live/daemon.py</code> — namespaced keyboard + dispatch, buttons on
+  actions, edit-on-tap</li>
+<li>EDIT <code>docs/HANDBOOK.md</code> — updated confirm flow</li>
+</ul>
+<h3 id="tests_1">Tests<a class="headerlink" href="#tests_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>EDIT <code>tests/live/test_daemon_telegram_routing.py</code> — <code>action:</code> tap executes the
+  breaker action (not gate submit); <code>confirm:</code>/<code>cancel:</code> unchanged; edit-on-tap
+  called with the outcome.</li>
+<li>EDIT <code>tests/comms/test_telegram.py</code> — <code>edit_message</code>; <code>poll</code> surfaces
+  <code>message_id</code>.</li>
+</ul>
+<hr />
+<h1 id="workstream-c-the-natural-language-ask-lane-read-only">Workstream C — the natural-language "ask" lane (read-only)<a class="headerlink" href="#workstream-c-the-natural-language-ask-lane-read-only" title="Permanent link">&para;</a></h1>
+<h3 id="problem_2">Problem<a class="headerlink" href="#problem_2" title="Permanent link">&para;</a></h3>
+<p>Every non-confirm message is fed to an agent whose prompt insists it's an order.
+"What's my leverage?" gets mis-read as a trade. The bridge + sandbox + data
+collectors already exist; they're just pointed only at ordering.</p>
+<h3 id="design-three-tiers-fastest-first">Design — three tiers, fastest first<a class="headerlink" href="#design-three-tiers-fastest-first" title="Permanent link">&para;</a></h3>
+<p><strong>1. Intent split (<code>classify_message</code>).</strong> A pure classifier returns
+<code>ORDER | ASK</code> for any message that isn't already a command/confirm (those are
+handled earlier). Heuristic: leading trade verbs (buy/sell/short/long/grab/trim/
+add/close) + a symbol/qty → <code>ORDER</code>; otherwise <code>ASK</code>. <strong>A misclassification is
+not a safety event</strong> — both lanes are read-only (the order lane only <em>stages</em>),
+so we can tune the heuristic freely. Documented as such.</p>
+<p><strong>2. Deterministic fast-path (<code>comms/ask.py::quick_answer</code>) — sub-second.</strong> The
+daemon already holds a <strong>live</strong> <code>ib</code> connection (client_id 4) with account
+values, portfolio, and fills streamed/cached by <code>ib_async</code>. For the handful of
+high-frequency questions we answer instantly <em>off the existing connection</em> — no
+<code>claude</code> subprocess, no new TWS socket:</p>
+<table>
+<thead>
+<tr>
+<th>Asks like…</th>
+<th>Answer from</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>leverage / leverage ratio</td>
+<td><code>gross_leverage</code> (+ true econ. exposure incl. FUT notional)</td>
+</tr>
+<tr>
+<td>trades today / what did I trade</td>
+<td>today's <code>fills</code> summary</td>
+</tr>
+<tr>
+<td>positions / book / what do I hold</td>
+<td><code>positions</code> table</td>
+</tr>
+<tr>
+<td>p&amp;l / pnl / how am I doing</td>
+<td>realized today + top unrealized</td>
+</tr>
+<tr>
+<td>cushion / margin</td>
+<td><code>margin_cushion</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>quick_answer(text, snapshot) -&gt; str | None</code> is pure (snapshot in, HTML out);
+<code>None</code> = not a quick question → fall through to tier 3. The daemon computes the
+snapshot via the existing <code>self.build()</code> (fast — <code>ib_async</code> accessors read warm
+cached state; the slow index/VIX backdrop is <strong>not</strong> used here).</p>
+<p><strong>3. The ask agent (open-ended analysis / technicals / news) — ~60–90s.</strong> A
+second <code>claude -p</code> lane with its own read-only system prompt and a wider, still
+read-only toolbelt:</p>
+<ul>
+<li>tools: <code>Bash</code>, <code>Read</code>, <strong><code>WebSearch</code>, <code>WebFetch</code></strong> (news) — keep every write
+  deny + the <code>GOVERNOR_AGENT_SANDBOX</code> dry-run env as defense-in-depth.</li>
+<li>it can run <code>governor.live.daily --json</code> (book/P&amp;L/leverage), the new read-only
+  <code>governor.technicals</code> CLI (a symbol's Stage-2/VCP or futures four-factor read,
+  <strong>without staging an order</strong>), and search the web for news.</li>
+<li>system prompt: "You answer read-only questions about the operator's IBKR
+  account and the market. Never place or stage orders. Reply concise, in
+  Telegram HTML." Returns a chat-ready string; never raises.</li>
+</ul>
+<p><strong>Read-only technicals CLI.</strong> <code>gate analyze</code> writes a staged token even for a
+mere question — an unwanted side effect on the ask lane. Add
+<code>python -m governor.technicals &lt;SYMBOL&gt; [--sec-type stk|fut] [--json]</code> that
+fetches bars + renders the setup panel via the existing pure <code>assess_setup</code> /
+<code>render_panels</code>, with no connection write and no staging.</p>
+<p><strong>Routing (updated <code>handle_telegram_text</code>).</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>0. /start /help            -&gt; help/menu
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>1. on_confirm (action tok) -&gt; execute
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>2. order CONFIRM &lt;token&gt;   -&gt; gate submit
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>3. classify_message:
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>     ORDER -&gt; order agent (existing run_agent)  [+ ✅/✖️ buttons]
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>     ASK   -&gt; quick_answer (instant) OR ask agent (fall-through, ~1 min)
+</code></pre></div>
+<p>Quick-answer questions are treated as <strong>fast messages</strong> (handled inline, like
+confirms) so they return immediately; the ask-agent fall-through runs off the
+poll loop under the existing concurrency semaphore, with a reworded ack
+("🔎 Looking into that…").</p>
+<h3 id="files_2">Files<a class="headerlink" href="#files_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li>NEW <code>src/governor/comms/ask.py</code> — <code>classify_message</code>, <code>quick_answer</code></li>
+<li>NEW <code>src/governor/technicals/__main__.py</code> (+ small <code>cli</code> helper) — read-only
+  setup CLI</li>
+<li>EDIT <code>src/governor/comms/agent_runner.py</code> — add an <code>ask</code> runner (prompt +
+  web tools) alongside the order runner; share <code>build_claude_argv</code> plumbing</li>
+<li>EDIT <code>src/governor/live/daemon.py</code> — routing, fast/slow classification, acks</li>
+<li>EDIT <code>docs/HANDBOOK.md</code> + <code>docs/FORCLAUDE.md</code> — the ask lane + grammar</li>
+</ul>
+<h3 id="tests_2">Tests<a class="headerlink" href="#tests_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li>NEW <code>tests/comms/test_ask.py</code> — <code>classify_message</code> (order vs ask, ambiguous),
+  <code>quick_answer</code> for each recognized question + <code>None</code> fall-through, HTML output.</li>
+<li>NEW <code>tests/technicals/test_cli.py</code> — read-only setup CLI renders/serializes,
+  <strong>stages nothing</strong> (asserts the staged-orders file is untouched).</li>
+<li>EDIT <code>tests/comms/test_agent_runner.py</code> — ask-runner argv (web tools present,
+  write denies intact); graceful when <code>claude</code> absent.</li>
+<li>EDIT daemon routing tests — ASK → fast-path; ASK → agent fall-through; ORDER
+  still → order agent.</li>
+</ul>
+<hr />
+<h2 id="pr-breakdown-small-test-backed-each-ships-safe">PR breakdown (small, test-backed, each ships SAFE)<a class="headerlink" href="#pr-breakdown-small-test-backed-each-ships-safe" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>PR1 — formatting:</strong> <code>format.py</code>, HTML house style, HTML-with-plain fallback.
+   Pure, low-risk, immediately visible.</li>
+<li><strong>PR2 — confirm UX:</strong> namespaced callbacks, buttons on breaker actions,
+   <code>editMessageText</code> in-place updates.</li>
+<li><strong>PR3 — ask lane (tiers 1–2):</strong> <code>classify_message</code> + deterministic fast-path
+   off the daemon's live connection. No new subprocess, no network.</li>
+<li><strong>PR4 — ask agent (tier 3):</strong> read-only ask runner + web tools + the
+   read-only <code>technicals</code> CLI, wired as the fall-through. Docs.</li>
+</ol>
+<p>Order: PR1 → PR2 (quick wins) → PR3 → PR4 (the big one). <code>config/rules.yaml</code>
+stays SAFE throughout; the single write chokepoint is untouched.</p>
+<h2 id="library-question-recorded-decision">Library question (recorded decision)<a class="headerlink" href="#library-question-recorded-decision" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong><code>ib_async</code> (IBKR):</strong> keep it. Maintained <code>ib_insync</code> fork, async-native,
+  wraps the full TWS API incl. <code>reqHistoricalNews</code> / <code>reqFundamentalData</code> /
+  scanners we haven't tapped. The ceiling on news/fundamentals is IBKR data
+  <em>entitlements</em>, not the library. Don't rebuild on raw <code>ibapi</code>.</li>
+<li><strong>Telegram client:</strong> keep hand-rolled for now; extend it incrementally
+  (<code>edit_message</code>, optional <code>setMyCommands</code> menu, the plain-text fallback).
+  Revisit <code>python-telegram-bot</code> only if we commit to Mini Apps or stateful
+  multi-turn conversation — a heavier dependency to place inside the
+  safety-critical daemon process.</li>
+</ul>
+<h2 id="open-questions-for-the-operator">Open questions for the operator<a class="headerlink" href="#open-questions-for-the-operator" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>News source:</strong> web search (free, broad) vs. IBKR <code>reqHistoricalNews</code>
+   (needs a news subscription, ticker-scoped). Default plan: web search.</li>
+<li><strong>Ask-agent reach:</strong> read-only account + technicals + web only (planned), or
+   also let it read the research vault (<code>$VAULT_DIR</code>) for thesis continuity like
+   the daily-summary skill does?</li>
+<li><strong>Command menu:</strong> add a Telegram <code>/</code> command menu (<code>setMyCommands</code>) for the
+   common asks (/leverage, /today, /positions, /book) as one-tap shortcuts?</li>
+</ol>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.sections", "navigation.top", "navigation.instant", "navigation.tracking", "search.suggest", "search.highlight", "content.code.copy", "toc.follow"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
